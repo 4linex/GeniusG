@@ -3,8 +3,10 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
+import { getSupabaseConfigError, isSupabaseConfigured } from '@/lib/supabase'
 
 export function LoginPage() {
+  const configError = getSupabaseConfigError()
   const { signIn, loading: authLoading, user, profile } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -13,6 +15,7 @@ export function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isSupabaseConfigured) return
     setError('')
     setLoading(true)
     try {
@@ -46,6 +49,11 @@ export function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="glass rounded-2xl p-8 space-y-5">
+          {configError && (
+            <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-sm text-amber-200">
+              {configError}
+            </div>
+          )}
           <Input
             label="E-mail"
             type="email"
@@ -69,7 +77,7 @@ export function LoginPage() {
             </div>
           )}
 
-          <Button type="submit" className="w-full" size="lg" loading={loading}>
+          <Button type="submit" className="w-full" size="lg" loading={loading} disabled={!isSupabaseConfigured}>
             Entrar
           </Button>
         </form>
