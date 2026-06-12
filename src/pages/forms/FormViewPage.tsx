@@ -128,9 +128,15 @@ export function FormViewPage() {
                 <dd className="text-white">{form.title}</dd>
               </div>
               <div>
-                <dt className="text-slate-500">Turma</dt>
+                <dt className="text-slate-500">Série</dt>
                 <dd className="text-white">{form.turma || '5º Ano'}</dd>
               </div>
+              {form.school_name && (
+                <div>
+                  <dt className="text-slate-500">Escola</dt>
+                  <dd className="text-white">{form.school_name}</dd>
+                </div>
+              )}
               <div>
                 <dt className="text-slate-500">Modo</dt>
                 <dd className="text-white">{FORM_MODE_LABELS[form.form_mode || 'padrao']}</dd>

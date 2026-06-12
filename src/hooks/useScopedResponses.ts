@@ -20,7 +20,10 @@ export function useScopedResponses<T extends FormResponse = FormResponse>(
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!user || !profile) return
+    if (!user || !profile) {
+      setLoading(false)
+      return
+    }
 
     const load = async () => {
       setLoading(true)

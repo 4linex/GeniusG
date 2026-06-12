@@ -21,6 +21,7 @@ export { getErrorMessage, syncQuestionAlternatives }
 export interface FormSavePayload {
   title: string
   description: string
+  schoolName: string
   isActive: boolean
   status: FormStatus
   expectedStudents: string
@@ -152,6 +153,7 @@ export async function saveForm(
   const formData = {
     title: payload.title,
     description: payload.description || null,
+    school_name: payload.schoolName.trim() || null,
     is_active: payload.isActive,
     status: payload.status,
     expected_students: payload.expectedStudents ? parseInt(payload.expectedStudents, 10) : null,

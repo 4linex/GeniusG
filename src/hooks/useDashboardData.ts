@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
 import { loadTriByFormChart, type TriFormChartRow } from '@/lib/formAssessmentReport'
 import { resolveScopedFormIds } from '@/lib/scopedForms'
 import { getPerformanceStatus } from '@/hooks/useScopedResponses'
@@ -177,24 +178,16 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
       const responseIds = responseList.map((r) => r.id)
 
       if (responseIds.length > 0) {
-        const { data: answers } = await supabase
-          .from('response_answers')
-          .select('is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom)')
-          .in('response_id', responseIds)
+        const answerRows = await fetchAnswersByResponseIds(responseIds)
 
-        for (const a of answers || []) {
-          const q = a.question as unknown as {
-            habilidade_bncc: string | null
-            descritor_saeb: string | null
-            nivel_bloom: string | null
-          } | null
-          const habKey = q?.habilidade_bncc || q?.descritor_saeb || 'Sem habilidade'
+        for (const a of answerRows) {
+          const habKey = a.habilidade
           const hab = bySkill.get(habKey) || { total: 0, correct: 0 }
           hab.total++
           if (a.is_correct) hab.correct++
           bySkill.set(habKey, hab)
 
-          const bloomKey = q?.nivel_bloom || 'Sem nível Bloom'
+          const bloomKey = a.bloom
           const bloom = byBloom.get(bloomKey) || { total: 0, correct: 0 }
           bloom.total++
           if (a.is_correct) bloom.correct++
@@ -328,7 +321,11 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
   }, [userId, role])
 
   useEffect(() => {
-    if (userId && role) fetchData()
+    if (!userId || !role) {
+      setLoading(false)
+      return
+    }
+    fetchData()
   }, [userId, role, fetchData])
 
   const updateFormStatus = useCallback(

@@ -1,5 +1,6 @@
 import type { FormResponse, NivelProficiencia } from '@/types/database'
 import type { SkillBreakdownRow } from '@/lib/formAssessmentReport'
+import type { TriFormChartRow } from '@/lib/formAssessmentReport'
 import { getPerformanceStatus } from '@/hooks/useScopedResponses'
 
 export interface ReportFilters {
@@ -149,4 +150,93 @@ export function hasActiveFilters(filters: ReportFilters) {
       filters.dateTo ||
       filters.search,
   )
+}
+
+const THETA_MIN = -3
+const THETA_MAX = 3
+
+function avg(nums: number[]): number {
+  if (nums.length === 0) return 0
+  return Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 10) / 10
+}
+
+function avgTheta(values: (number | null | undefined)[]): number | null {
+  const nums = values.filter((v): v is number => v != null)
+  if (nums.length === 0) return null
+  return Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100
+}
+
+export function averageThetaFromResponses(responses: ResponseWithForm[]): number | null {
+  return avgTheta(responses.map((r) => r.theta))
+}
+
+export function buildTriChartFromResponses(responses: ResponseWithForm[]): TriFormChartRow[] {
+  const byForm = new Map<
+    string,
+    { title: string; tct: number[]; theta: (number | null | undefined)[] }
+  >()
+
+  for (const r of responses) {
+    const cur = byForm.get(r.form_id) || {
+      title: r.form?.title || 'Formulário',
+      tct: [],
+      theta: [],
+    }
+    if (r.percentual_acerto != null) cur.tct.push(r.percentual_acerto)
+    cur.theta.push(r.theta)
+    byForm.set(r.form_id, cur)
+  }
+
+  return Array.from(byForm.entries())
+    .map(([formId, stats]) => ({
+      formId,
+      title: stats.title,
+      averageTct: avg(stats.tct),
+      averageTheta: avgTheta(stats.theta),
+      totalResponses: stats.tct.length,
+    }))
+    .filter((row) => row.totalResponses > 0)
+    .sort((a, b) => (b.averageTheta ?? -999) - (a.averageTheta ?? -999))
+}
+
+export interface TriSkillRow {
+  key: string
+  label: string
+  averageTheta: number | null
+  responseCount: number
+}
+
+export function aggregateTriBySkill(
+  answers: RawAnswerRow[],
+  responses: ResponseWithForm[],
+  responseIds: Set<string>,
+): TriSkillRow[] {
+  const thetaByResponse = new Map(responses.map((r) => [r.id, r.theta]))
+  const bySkill = new Map<string, Set<string>>()
+
+  for (const a of answers) {
+    if (!responseIds.has(a.response_id)) continue
+    const ids = bySkill.get(a.habilidade) || new Set()
+    ids.add(a.response_id)
+    bySkill.set(a.habilidade, ids)
+  }
+
+  return Array.from(bySkill.entries())
+    .map(([label, ids]) => {
+      const thetas = [...ids]
+        .map((id) => thetaByResponse.get(id))
+        .filter((t): t is number => t != null)
+      return {
+        key: label,
+        label,
+        averageTheta: avgTheta(thetas),
+        responseCount: ids.size,
+      }
+    })
+    .filter((row) => row.averageTheta != null)
+    .sort((a, b) => (a.averageTheta ?? -999) - (b.averageTheta ?? -999))
+}
+
+export function thetaToBarPercent(theta: number): number {
+  return Math.max(0, Math.min(100, ((theta - THETA_MIN) / (THETA_MAX - THETA_MIN)) * 100))
 }

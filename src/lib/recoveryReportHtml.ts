@@ -100,14 +100,18 @@ export function buildRecoveryReportHtml(data: RecoveryReportData): string {
       ? 'Relatório Individual do Aluno'
       : data.kind === 'form'
         ? 'Relatório do Formulário'
-        : 'Análise por Habilidades, TRI e Bloom'
+        : data.kind === 'dashboard'
+          ? 'Relatório Geral — Dashboard Consolidado'
+          : 'Análise por Habilidades, TRI e Bloom'
 
   const areaTitle =
     data.kind === 'student'
       ? 'Desempenho por Formulário'
       : data.kind === 'form'
         ? 'Desempenho por Habilidade BNCC'
-        : 'Desempenho por Habilidade BNCC / SAEB'
+        : data.kind === 'dashboard'
+          ? 'Desempenho por Formulário'
+          : 'Desempenho por Habilidade BNCC / SAEB'
 
   const metaFields = [
     data.reportDate && { label: 'Data do relatório', value: data.reportDate },
@@ -134,6 +138,7 @@ export function buildRecoveryReportHtml(data: RecoveryReportData): string {
     data.turma && { dt: 'Turma', dd: data.turma },
     data.periodo && { dt: 'Período analisado', dd: data.periodo },
     data.averageTheta != null && { dt: 'TRI médio (θ)', dd: data.averageTheta.toFixed(2) },
+    ...(data.summaryMetrics?.map((m) => ({ dt: m.label, dd: m.value })) ?? []),
   ].filter(Boolean) as { dt: string; dd: string }[]
 
   const summaryHtml = summaryItems
@@ -273,6 +278,7 @@ export function buildRecoveryReportHtml(data: RecoveryReportData): string {
         </section>
 
         ${areaTable(areaTitle, data.areaRows, '#faf5ff', '#6b21a8')}
+        ${data.criticalSkillRows && data.criticalSkillRows.length > 0 ? areaTable('Habilidades com maior déficit (BNCC / SAEB)', data.criticalSkillRows, '#fffbeb', '#92400e') : ''}
         ${data.bloomRows && data.bloomRows.length > 0 ? areaTable('Desempenho por Nível Bloom', data.bloomRows, '#eef2ff', '#3730a3') : ''}
         ${triHtml}
 

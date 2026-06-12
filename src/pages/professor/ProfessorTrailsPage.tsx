@@ -2,17 +2,22 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { TrailCard } from '@/components/trails/TrailCard'
+import { TrailBankDetail } from '@/components/trails/TrailBankDetail'
+import { TrailAreaToggle } from '@/components/trails/TrailAreaToggle'
+import { PROFESSOR_TRAIL_COLUMNS, type TrailAreaTab } from '@/lib/trailAreas'
 import type { LearningTrail } from '@/types/database'
 
 export function ProfessorTrailsPage() {
   const [trails, setTrails] = useState<LearningTrail[]>([])
   const [loading, setLoading] = useState(true)
+  const [areaView, setAreaView] = useState<TrailAreaTab>('professor')
+  const [selectedTrail, setSelectedTrail] = useState<LearningTrail | null>(null)
 
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase
         .from('learning_trails')
-        .select('*')
+        .select(PROFESSOR_TRAIL_COLUMNS)
         .order('title')
 
       if (data) setTrails(data as LearningTrail[])
@@ -25,14 +30,9 @@ export function ProfessorTrailsPage() {
     <div>
       <CardHeader
         title="Banco de Trilhas"
-        description="Visualize as trilhas cadastradas. A escolha e as faixas de % de acerto são feitas ao editar cada formulário."
+        belowDescription={<TrailAreaToggle value={areaView} onChange={setAreaView} />}
+        description="Selecione a área do professor ou do aluno. Clique em uma trilha para ver o conteúdo completo."
       />
-
-      <Card className="mb-6 border-white/10 bg-white/[0.02]">
-        <p className="text-sm text-slate-400">
-          Você pode visualizar e abrir as trilhas, mas não cadastrar ou alterar. O administrador mantém o banco; ao criar um formulário, selecione quais trilhas o aluno pode receber.
-        </p>
-      </Card>
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -47,9 +47,24 @@ export function ProfessorTrailsPage() {
       ) : (
         <div className="space-y-3">
           {trails.map((trail) => (
-            <TrailCard key={trail.id} trail={trail} readOnly />
+            <TrailCard
+              key={trail.id}
+              trail={trail}
+              areaView={areaView}
+              readOnly
+              onOpen={() => setSelectedTrail(trail)}
+            />
           ))}
         </div>
+      )}
+
+      {selectedTrail && (
+        <TrailBankDetail
+          trail={selectedTrail}
+          open
+          initialTab={areaView}
+          onClose={() => setSelectedTrail(null)}
+        />
       )}
     </div>
   )

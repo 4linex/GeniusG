@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { flattenNestedAnswers } from '@/lib/responseAnswers'
 import type { RawAnswerRow, ResponseWithForm } from '@/lib/reportAnalytics'
+
+const RESPONSES_SELECT = `
+  *,
+  form:forms(id, title, turma),
+  response_answers(is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom))
+`
 
 async function getProfessorLinkIds(professorId: string): Promise<string[]> {
   const { data: links } = await supabase
@@ -17,65 +24,52 @@ export function useReportData() {
   const [responses, setResponses] = useState<ResponseWithForm[]>([])
   const [answers, setAnswers] = useState<RawAnswerRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!user || !profile) return
+    if (!user || !profile) {
+      setLoading(false)
+      return
+    }
 
     const load = async () => {
       setLoading(true)
+      setError(null)
 
-      let query = supabase
-        .from('form_responses')
-        .select('*, form:forms(id, title, turma)')
-        .order('completed_at', { ascending: false })
+      try {
+        let query = supabase
+          .from('form_responses')
+          .select(RESPONSES_SELECT)
+          .order('completed_at', { ascending: false })
 
-      if (profile.role === 'professor') {
-        const linkIds = await getProfessorLinkIds(user.id)
-        if (linkIds.length === 0) {
-          setResponses([])
-          setAnswers([])
-          setLoading(false)
-          return
+        if (profile.role === 'professor') {
+          const linkIds = await getProfessorLinkIds(user.id)
+          if (linkIds.length === 0) {
+            setResponses([])
+            setAnswers([])
+            setLoading(false)
+            return
+          }
+          query = query.in('form_link_id', linkIds)
         }
-        query = query.in('form_link_id', linkIds)
-      }
 
-      const { data: respData } = await query
-      const list = (respData as ResponseWithForm[]) || []
-      setResponses(list)
+        const { data: respData, error: respError } = await query
+        if (respError) throw respError
 
-      const ids = list.map((r) => r.id)
-      if (ids.length === 0) {
+        const rawList = respData || []
+        setResponses(rawList as ResponseWithForm[])
+        setAnswers(flattenNestedAnswers(rawList))
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro ao carregar relatórios')
+        setResponses([])
         setAnswers([])
+      } finally {
         setLoading(false)
-        return
       }
-
-      const { data: answerData } = await supabase
-        .from('response_answers')
-        .select('response_id, is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom)')
-        .in('response_id', ids)
-
-      const parsed: RawAnswerRow[] = (answerData || []).map((a) => {
-        const q = a.question as unknown as {
-          habilidade_bncc: string | null
-          descritor_saeb: string | null
-          nivel_bloom: string | null
-        } | null
-        return {
-          response_id: a.response_id,
-          is_correct: a.is_correct,
-          habilidade: q?.habilidade_bncc || q?.descritor_saeb || 'Sem habilidade',
-          bloom: q?.nivel_bloom || 'Sem nível Bloom',
-        }
-      })
-
-      setAnswers(parsed)
-      setLoading(false)
     }
 
     load()
   }, [user, profile])
 
-  return { responses, answers, loading }
+  return { responses, answers, loading, error }
 }

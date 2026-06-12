@@ -1,13 +1,11 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
 
 export function LoginPage() {
-  const { signIn } = useAuth()
-  const navigate = useNavigate()
+  const { signIn, loading: authLoading, user, profile } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -19,12 +17,20 @@ export function LoginPage() {
     setLoading(true)
     try {
       await signIn(email, password)
-      navigate('/dashboard')
+      // PublicRoute redireciona quando sessão + perfil estiverem prontos
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao fazer login')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (authLoading || (user && !profile)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-500/30 border-t-primary-500" />
+      </div>
+    )
   }
 
   return (

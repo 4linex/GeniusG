@@ -10,6 +10,7 @@ import {
 import type { FormMode } from '@/types/database'
 import { clampScore, clampTheta, clampPointValue, sanitizeItemTriParams } from '@/lib/scoreBounds'
 import { dedupeAlternativesByLetter } from '@/lib/questionAlternatives'
+import { STUDENT_TRAIL_COLUMNS } from '@/lib/trailAreas'
 
 export interface StudentAssignedTrail {
   title: string
@@ -286,7 +287,7 @@ async function submitStudentFormFromDb(
     .from('form_trails')
     .select(`
       id, min_percent, max_percent, title, description, pdf_url, link_url, content, difficulty,
-      learning_trail:learning_trails(title, description, pdf_url, link_url, content)
+      learning_trail:learning_trails(${STUDENT_TRAIL_COLUMNS})
     `)
     .eq('form_id', link.form_id)
     .order('min_percent')

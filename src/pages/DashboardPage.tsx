@@ -1,11 +1,14 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Card } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
 import { useDashboardData } from '@/hooks/useDashboardData'
 import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { PERFORMANCE_STATUS_LABELS } from '@/hooks/useScopedResponses'
 import { cn, formatDate, formatScore } from '@/lib/utils'
+import { buildDashboardRecoveryReport, type RecoveryReportData } from '@/lib/recoveryReport'
+import { RecoveryReportModal } from '@/components/reports/RecoveryReportModal'
 import {
   CHART_COLORS,
   DonutChart,
@@ -20,6 +23,7 @@ import {
   BarChart3,
   ChevronRight,
   ClipboardList,
+  FileBarChart,
   GraduationCap,
   Layers,
   TrendingUp,
@@ -85,8 +89,22 @@ export function DashboardPage() {
     user?.id,
     profile?.role,
   )
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportData, setReportData] = useState<RecoveryReportData | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
 
   useRefreshOnFocus(refetch, Boolean(user && profile))
+
+  const openGeneralReport = async () => {
+    if (!user?.id || !profile?.role) return
+    setReportOpen(true)
+    setReportLoading(true)
+    try {
+      setReportData(await buildDashboardRecoveryReport(user.id, profile.role))
+    } finally {
+      setReportLoading(false)
+    }
+  }
 
   const mediaDelta =
     stats.mediaMesAnterior > 0
@@ -175,6 +193,12 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
+          {hasData && (
+            <Button variant="secondary" size="sm" onClick={openGeneralReport}>
+              <FileBarChart size={16} />
+              Relatório PDF
+            </Button>
+          )}
           <Link
             to="/professor/relatorios/alunos"
             className="inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all px-3 py-1.5 text-sm bg-white/10 text-white hover:bg-white/20 border border-white/10"
@@ -446,6 +470,13 @@ export function DashboardPage() {
           </div>
         )}
       </Card>
+
+      <RecoveryReportModal
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        data={reportData}
+        loading={reportLoading}
+      />
     </div>
   )
 }

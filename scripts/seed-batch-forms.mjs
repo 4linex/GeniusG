@@ -13,36 +13,39 @@ const SERVICE_ROLE_KEY =
 
 const STUDENT_COUNT = 50
 
+const FORMS_ONLY = process.env.FORMS_ONLY === '1' || process.env.FORMS_ONLY === 'true'
+const SKIP_RESPONSES = FORMS_ONLY || process.env.SEED_RESPONSES === '0'
+
 const FORMS = [
   {
-    title: 'Avaliação LP — Compreensão Textual',
+    title: 'Diagnóstico LP — Material Gráfico',
     form_mode: 'padrao',
     design_accent: '#14b8a6',
-    questionCodes: ['LP5_D3_004', 'LP5_D3_005', 'LP5_D3_006', 'LP5_D4_007', 'LP5_D4_008'],
+    questionCodes: ['LP5_D5_016', 'LP5_D5_017', 'LP5_D5_018', 'LP5_D9_019', 'LP5_D9_020'],
   },
   {
-    title: 'Avaliação LP — Inferência e Análise',
+    title: 'Diagnóstico LP — Finalidade de Textos',
     form_mode: 'padrao',
     design_accent: '#0ea5e9',
-    questionCodes: ['LP5_D4_009', 'LP5_D6_010', 'LP5_D6_011', 'LP5_D6_012', 'LP5_D3_004'],
+    questionCodes: ['LP5_D9_021', 'LP5_D9_022', 'LP5_D15_023', 'LP5_D15_024', 'LP5_D15_025'],
   },
   {
-    title: 'Avaliação LP — Revisão Bimestral',
+    title: 'Diagnóstico LP — Estrutura Narrativa',
     form_mode: 'padrao',
     design_accent: '#6366f1',
-    questionCodes: ['LP5_D3_005', 'LP5_D3_006', 'LP5_D4_007', 'LP5_D4_008', 'LP5_D4_009'],
+    questionCodes: ['LP5_D2_026', 'LP5_D2_027', 'LP5_D2_048', 'LP5_D7_031', 'LP5_D7_032'],
   },
   {
-    title: 'Missão LP — Trilha do Leitor',
+    title: 'Missão LP — Interpretação Multissemiótica',
     form_mode: 'gamificado',
     design_accent: '#a855f7',
-    questionCodes: ['LP5_D6_010', 'LP5_D6_011', 'LP5_D6_012', 'LP5_D3_004', 'LP5_D3_005'],
+    questionCodes: ['LP5_D8_033', 'LP5_D8_034', 'LP5_D8_035', 'LP5_D12_036', 'LP5_D12_037'],
   },
   {
-    title: 'Missão LP — Desafio das Habilidades',
+    title: 'Missão LP — Revisão Integrada',
     form_mode: 'gamificado',
     design_accent: '#ec4899',
-    questionCodes: ['LP5_D4_007', 'LP5_D4_008', 'LP5_D4_009', 'LP5_D6_010', 'LP5_D6_011'],
+    questionCodes: ['LP5_D13_039', 'LP5_D13_040', 'LP5_D14_042', 'LP5_D2_049', 'LP5_D3_050'],
   },
 ]
 
@@ -90,10 +93,38 @@ async function loadQuestionIdsByCode(codes) {
   const missing = codes.filter((c) => !map.has(c))
   if (missing.length > 0) {
     throw new Error(
-      `Questões não encontradas: ${missing.join(', ')}. Execute npm run seed:gadelha-questions primeiro.`,
+      `Questões não encontradas: ${missing.join(', ')}. Execute npm run seed:lote2-questions e seed:lote3-questions.`,
     )
   }
   return codes.map((c) => map.get(c))
+}
+
+async function attachDefaultTrails(formId) {
+  const { data: trails, error } = await supabase
+    .from('learning_trails')
+    .select('id, title')
+    .order('title')
+  if (error) throw error
+  if (!trails?.length) return
+
+  const byKeyword = (keyword) =>
+    trails.find((t) => t.title.toLowerCase().includes(keyword))?.id
+
+  const trail1 = byKeyword('trilha 1') || trails[0]?.id
+  const trail2 = byKeyword('trilha 2') || trails[1]?.id
+  const trail3 = byKeyword('trilha 3') || trails[2]?.id
+
+  const rows = [
+    trail1 && { form_id: formId, learning_trail_id: trail1, min_percent: 0, max_percent: 44, order_index: 0 },
+    trail2 && { form_id: formId, learning_trail_id: trail2, min_percent: 45, max_percent: 67, order_index: 1 },
+    trail3 && { form_id: formId, learning_trail_id: trail3, min_percent: 68, max_percent: 100, order_index: 2 },
+  ].filter(Boolean)
+
+  if (rows.length === 0) return
+
+  await supabase.from('form_trails').delete().eq('form_id', formId)
+  const { error: insertError } = await supabase.from('form_trails').insert(rows)
+  if (insertError) throw insertError
 }
 
 async function loadFormQuestionsMeta(formId) {
@@ -180,6 +211,7 @@ async function createForm(definition, professorId, createdBy) {
 
   if (existing?.id) {
     console.log(`  ↻ Formulário já existe: ${definition.title}`)
+    await attachDefaultTrails(existing.id)
     const { data: link } = await supabase
       .from('form_links')
       .select('slug')
@@ -235,6 +267,7 @@ async function createForm(definition, professorId, createdBy) {
   }
 
   console.log(`  ✓ Criado: ${definition.title} (${definition.form_mode}) — /f/${slug}`)
+  await attachDefaultTrails(form.id)
   return { formId: form.id, slug, reused: false }
 }
 
@@ -282,11 +315,13 @@ async function seedResponsesForForm(slug, formId, students) {
 }
 
 async function main() {
-  console.log('Criando 5 formulários e respostas para 50 alunos...\n')
+  console.log(`Criando ${FORMS.length} formulários${SKIP_RESPONSES ? '' : ' e respostas para 50 alunos'}...\n`)
 
   const professorId = await getProfessorId()
-  const students = await loadStudents()
-  console.log(`Alunos: ${students.length}`)
+  const students = SKIP_RESPONSES ? [] : await loadStudents()
+  if (!SKIP_RESPONSES) {
+    console.log(`Alunos: ${students.length}`)
+  }
   console.log(`Professor: ${professorId}\n`)
 
   const results = []
@@ -296,11 +331,13 @@ async function main() {
     const { formId, slug, reused } = await createForm(def, professorId, professorId)
     if (!slug) throw new Error('Slug não encontrado para o formulário')
 
-    console.log(`  Preenchendo respostas (${students.length} alunos)...`)
-    const stats = await seedResponsesForForm(slug, formId, students)
-    console.log(
-      `  Respostas: ${stats.created} novas, ${stats.skipped} já existiam, ${stats.failed} falhas`,
-    )
+    if (!SKIP_RESPONSES) {
+      console.log(`  Preenchendo respostas (${students.length} alunos)...`)
+      const stats = await seedResponsesForForm(slug, formId, students)
+      console.log(
+        `  Respostas: ${stats.created} novas, ${stats.skipped} já existiam, ${stats.failed} falhas`,
+      )
+    }
 
     const { count } = await supabase
       .from('form_responses')
@@ -311,14 +348,14 @@ async function main() {
       title: def.title,
       mode: def.form_mode,
       slug,
-      url: `http://localhost:5173/f/${slug}`,
+      url: `${process.env.APP_URL || 'http://localhost:5173'}/f/${slug}`,
       total: count ?? 0,
       reused,
     })
   }
 
   console.log('\n════════════════════════════════════════')
-  console.log('Resumo dos formulários criados:\n')
+  console.log('Resumo dos formulários:\n')
   for (const r of results) {
     console.log(`  ${r.title}`)
     console.log(`    Modo: ${r.mode} | Respostas: ${r.total}`)

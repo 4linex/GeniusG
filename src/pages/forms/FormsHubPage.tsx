@@ -95,10 +95,14 @@ export function FormsHubPage() {
   }
 
   useEffect(() => {
-    if (!authLoading && user) loadData()
+    if (authLoading || !user || !profile) {
+      if (!authLoading) setLoading(false)
+      return
+    }
+    loadData()
   }, [user, profile, authLoading, canManageForms])
 
-  useRefreshOnFocus(loadData, !authLoading && Boolean(user))
+  useRefreshOnFocus(loadData, !authLoading && Boolean(user && profile))
 
   const handleStatusChange = async (id: string, status: FormStatus) => {
     await supabase.from('forms').update({ status }).eq('id', id)

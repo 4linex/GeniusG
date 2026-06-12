@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
 import type { NivelProficiencia } from '@/types/database'
 
 export interface FormAssessmentSummary {
@@ -132,31 +133,19 @@ export async function loadFormAssessmentDetail(formId: string) {
   let bloomSkills: SkillBreakdownRow[] = []
 
   if (list.length > 0) {
-    const { data: answers } = await supabase
-      .from('response_answers')
-      .select('is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom)')
-      .in(
-        'response_id',
-        list.map((r) => r.id),
-      )
+    const answerRows = await fetchAnswersByResponseIds(list.map((r) => r.id))
 
     const byHabilidade = new Map<string, { total: number; correct: number }>()
     const byBloom = new Map<string, { total: number; correct: number }>()
 
-    for (const a of answers || []) {
-      const q = a.question as unknown as {
-        habilidade_bncc: string | null
-        descritor_saeb: string | null
-        nivel_bloom: string | null
-      } | null
-
-      const habKey = q?.habilidade_bncc || q?.descritor_saeb || 'Sem habilidade'
+    for (const a of answerRows) {
+      const habKey = a.habilidade
       const hab = byHabilidade.get(habKey) || { total: 0, correct: 0 }
       hab.total++
       if (a.is_correct) hab.correct++
       byHabilidade.set(habKey, hab)
 
-      const bloomKey = q?.nivel_bloom || 'Sem nível Bloom'
+      const bloomKey = a.bloom
       const bloom = byBloom.get(bloomKey) || { total: 0, correct: 0 }
       bloom.total++
       if (a.is_correct) bloom.correct++

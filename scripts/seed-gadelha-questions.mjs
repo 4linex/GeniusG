@@ -387,10 +387,19 @@ function extractCartazImageFromDocx(docxPath) {
 }
 
 async function getAdminProfileId() {
-  const { data, error } = await supabase
+  const preferred = await supabase
     .from('profiles')
     .select('id')
     .eq('email', 'admin@mvp-rda.local')
+    .maybeSingle()
+  if (preferred.data?.id) return preferred.data.id
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id')
+    .in('role', ['root', 'admin'])
+    .order('created_at')
+    .limit(1)
     .maybeSingle()
   if (error) throw error
   return data?.id ?? null

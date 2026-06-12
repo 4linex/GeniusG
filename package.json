@@ -17,8 +17,13 @@
     "supabase:functions": "supabase functions serve",
     "seed:users": "node scripts/seed-users.mjs",
     "seed:gadelha-questions": "node scripts/seed-gadelha-questions.mjs",
+    "seed:lote2-questions": "node scripts/seed-lote2-questions.mjs",
+    "seed:lote3-questions": "node scripts/seed-lote2-questions.mjs",
+    "seed:student-trails": "node scripts/seed-student-trails.mjs",
+    "seed:professor-trails": "node scripts/seed-professor-trails.mjs",
     "seed:form-responses": "node scripts/seed-form-responses.mjs",
-    "seed:batch-forms": "node scripts/seed-batch-forms.mjs"
+    "seed:batch-forms": "node scripts/seed-batch-forms.mjs",
+    "seed:batch-form-responses": "node scripts/seed-batch-form-responses.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.0",

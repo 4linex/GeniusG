@@ -52,9 +52,8 @@ function applyCreatorNotesAccess(
 const TABS: { id: BuilderTab; label: string }[] = [
   { id: 'editor', label: 'Editor' },
   { id: 'fluxo', label: 'Fluxo' },
-  { id: 'design', label: 'Design' },
+  { id: 'configuracao', label: 'Configuração' },
   { id: 'trilhas', label: 'Trilhas' },
-  { id: 'final', label: 'Tela Final' },
 ]
 
 export function FormBuilderPage() {
@@ -67,6 +66,7 @@ export function FormBuilderPage() {
   const [activeTab, setActiveTab] = useState<BuilderTab>('editor')
   const [title, setTitle] = useState('Meu Novo Formulário')
   const [description, setDescription] = useState('')
+  const [schoolName, setSchoolName] = useState('')
   const [isActive, setIsActive] = useState(true)
   const [status, setStatus] = useState<FormStatus>('em_andamento')
   const [expectedStudents, setExpectedStudents] = useState('')
@@ -98,6 +98,7 @@ export function FormBuilderPage() {
       const { form, questions: qs, trails: loadedTrails } = data
       setTitle(form.title)
       setDescription(form.description || '')
+      setSchoolName(form.school_name || '')
       setIsActive(form.is_active)
       setStatus(form.status || 'em_andamento')
       setExpectedStudents(form.expected_students?.toString() || '')
@@ -192,6 +193,7 @@ export function FormBuilderPage() {
         {
           title,
           description,
+          schoolName,
           isActive,
           status,
           expectedStudents,
@@ -224,8 +226,8 @@ export function FormBuilderPage() {
 
   return (
     <div className={cn('fixed inset-0 flex flex-col bg-[#080c14] z-10', collapsed ? 'lg:left-[4.25rem]' : 'lg:left-64')}>
-      <header className="h-auto min-h-14 shrink-0 border-b border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-3 sm:px-4 py-2 sm:py-0 bg-[#0a0e1a]">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+      <header className="h-14 shrink-0 border-b border-white/10 grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)_auto] items-center gap-x-3 px-3 sm:px-4 bg-[#0a0e1a]">
+        <div className="flex items-center gap-2 min-w-0 md:max-w-[16rem]">
           <button
             type="button"
             onClick={() => navigate('/formularios')}
@@ -233,7 +235,7 @@ export function FormBuilderPage() {
           >
             <ArrowLeft size={18} />
           </button>
-          <div className="relative group w-44 sm:w-56 shrink-0">
+          <div className="relative group min-w-0 flex-1">
             <Pencil
               size={13}
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none group-focus-within:text-teal-400"
@@ -243,19 +245,19 @@ export function FormBuilderPage() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Nome do formulário"
-              className="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-2.5 py-1.5 text-sm font-semibold text-white outline-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/30 placeholder:text-slate-600 placeholder:font-normal"
+              className="w-full min-w-0 bg-white/5 border border-white/10 rounded-lg pl-8 pr-2.5 py-1.5 text-sm font-semibold text-white outline-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/30 placeholder:text-slate-600 placeholder:font-normal truncate"
             />
           </div>
         </div>
 
-        <nav className="hidden md:flex items-center gap-1 overflow-x-auto scrollbar-app max-w-[40vw]">
+        <nav className="hidden md:flex items-center justify-center gap-1 min-w-0 overflow-x-auto scrollbar-app px-1">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                'px-4 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wide transition-colors',
+                'px-3 xl:px-4 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wide transition-colors whitespace-nowrap shrink-0',
                 activeTab === tab.id
                   ? 'bg-white/10 text-white ring-1 ring-white/20'
                   : 'text-slate-500 hover:text-slate-300',
@@ -266,8 +268,7 @@ export function FormBuilderPage() {
           ))}
         </nav>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <FormModeToggle value={formMode} onChange={setFormMode} className="hidden sm:flex" />
+        <div className="flex items-center justify-end gap-2 shrink-0 col-start-2 md:col-start-3">
           <Button variant="outline" size="sm" onClick={() => setPreviewOpen(true)}>
             <Eye size={16} />
             <span className="hidden sm:inline ml-1">Visualizar</span>
@@ -279,8 +280,7 @@ export function FormBuilderPage() {
         </div>
       </header>
 
-      <div className="md:hidden px-3 py-2 border-b border-white/10 bg-[#0a0e1a] space-y-2">
-        <FormModeToggle value={formMode} onChange={setFormMode} className="sm:hidden w-full" />
+      <div className="md:hidden px-3 py-2 border-b border-white/10 bg-[#0a0e1a]">
         <Select
           value={activeTab}
           onChange={(e) => setActiveTab(e.target.value as BuilderTab)}
@@ -340,17 +340,75 @@ export function FormBuilderPage() {
         </div>
       )}
 
-      {activeTab === 'design' && (
+      {activeTab === 'configuracao' && (
         <div className="flex-1 overflow-y-auto p-8 max-w-lg mx-auto w-full space-y-6">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Modo do formulário</label>
+            <h2 className="text-lg font-semibold text-white mb-1">Configuração</h2>
+            <p className="text-sm text-slate-400 mb-6">
+              Defina o modo, a escola, a série e demais parâmetros do formulário.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Modo</label>
             <FormModeToggle value={formMode} onChange={setFormMode} />
             <p className="text-xs text-slate-500 mt-2">
               No modo gamificado, o aluno vê emojis animados, mensagens de incentivo e decola um foguete
               para receber a trilha — sem pontuação ou ranking.
             </p>
           </div>
-          <Select label="Turma" value={turma} onChange={(e) => setTurma(e.target.value)} options={TURMA_OPTIONS} />
+
+          <Input
+            label="Nome da escola"
+            value={schoolName}
+            onChange={(e) => setSchoolName(e.target.value)}
+            placeholder="Ex.: E.M. Professor João Silva"
+          />
+
+          <Select
+            label="Série"
+            value={turma}
+            onChange={(e) => setTurma(e.target.value)}
+            options={TURMA_OPTIONS}
+          />
+
+          <Select
+            label="Status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as FormStatus)}
+            options={Object.entries(FORM_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+          />
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Formulário</label>
+            <div className="flex rounded-xl border border-white/10 p-1 bg-white/[0.03] w-fit">
+              <button
+                type="button"
+                onClick={() => setIsActive(true)}
+                className={cn(
+                  'px-4 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  isActive
+                    ? 'bg-teal-500/20 text-teal-300 ring-1 ring-teal-500/40'
+                    : 'text-slate-500 hover:text-slate-300',
+                )}
+              >
+                Ativo
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsActive(false)}
+                className={cn(
+                  'px-4 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  !isActive
+                    ? 'bg-white/10 text-white ring-1 ring-white/15'
+                    : 'text-slate-500 hover:text-slate-300',
+                )}
+              >
+                Inativo
+              </button>
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-1.5">Cor de destaque</label>
             <input
@@ -360,12 +418,7 @@ export function FormBuilderPage() {
               className="h-10 w-full rounded-xl cursor-pointer bg-transparent"
             />
           </div>
-          <Select
-            label="Status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as FormStatus)}
-            options={Object.entries(FORM_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
-          />
+
           <Input
             label="Total esperado de alunos"
             type="number"
@@ -373,42 +426,41 @@ export function FormBuilderPage() {
             value={expectedStudents}
             onChange={(e) => setExpectedStudents(e.target.value)}
           />
-          <Textarea label="Descrição" value={description} onChange={(e) => setDescription(e.target.value)} />
-          <label className="flex items-center gap-2 text-sm text-slate-300">
-            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-            Formulário ativo
-          </label>
+
+          <div className="border-t border-white/10 pt-6 space-y-4">
+            <div>
+              <h3 className="text-base font-semibold text-white mb-1">Tela final</h3>
+              <p className="text-sm text-slate-400">
+                Mensagem exibida ao aluno após enviar as respostas. O aluno não verá percentual de
+                acertos nem pontuação — apenas esta mensagem e a trilha configurada na aba Trilhas.
+              </p>
+            </div>
+
+            <Input
+              label="Título da tela final"
+              value={finalScreenTitle}
+              onChange={(e) => setFinalScreenTitle(e.target.value)}
+            />
+
+            <Textarea
+              label="Mensagem"
+              value={finalScreenMessage}
+              onChange={(e) => setFinalScreenMessage(e.target.value)}
+            />
+
+            <div
+              className="rounded-2xl border border-white/10 p-8 text-center"
+              style={{ borderColor: `${designAccent}40` }}
+            >
+              <h3 className="text-xl font-bold text-white mb-2">{finalScreenTitle}</h3>
+              <p className="text-slate-400 text-sm">{finalScreenMessage}</p>
+            </div>
+          </div>
         </div>
       )}
 
       {activeTab === 'trilhas' && (
         <FormTrailsPanel trails={trails} onChange={setTrails} />
-      )}
-
-      {activeTab === 'final' && (
-        <div className="flex-1 overflow-y-auto p-8 max-w-lg mx-auto w-full space-y-4">
-          <Input
-            label="Título da tela final"
-            value={finalScreenTitle}
-            onChange={(e) => setFinalScreenTitle(e.target.value)}
-          />
-          <Textarea
-            label="Mensagem"
-            value={finalScreenMessage}
-            onChange={(e) => setFinalScreenMessage(e.target.value)}
-          />
-          <p className="text-xs text-slate-500">
-            O aluno não verá percentual de acertos nem pontuação — apenas a mensagem e a trilha
-            configurada na aba Trilhas (conforme % de acerto).
-          </p>
-          <div
-            className="mt-6 rounded-2xl border border-white/10 p-8 text-center"
-            style={{ borderColor: `${designAccent}40` }}
-          >
-            <h3 className="text-xl font-bold text-white mb-2">{finalScreenTitle}</h3>
-            <p className="text-slate-400 text-sm">{finalScreenMessage}</p>
-          </div>
-        </div>
       )}
       <FormPreviewModal
         open={previewOpen}

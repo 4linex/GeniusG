@@ -44,28 +44,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data as Profile
   }
 
+  // Sessão: apenas atualizações síncronas no listener (await aqui causa deadlock no Supabase Auth).
   useEffect(() => {
     let mounted = true
 
-    const applySession = async (s: Session | null) => {
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (!mounted) return
       setSession(s)
       setUser(s?.user ?? null)
-      if (s?.user) {
-        const p = await fetchProfile(s.user.id)
-        if (mounted) setProfile(p)
-      } else if (mounted) {
-        setProfile(null)
-      }
-      if (mounted) setLoading(false)
-    }
-
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      if (mounted) applySession(s)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
-      if (!mounted || event === 'INITIAL_SESSION') return
-      applySession(s)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (!mounted) return
+      setSession(s)
+      setUser(s?.user ?? null)
     })
 
     return () => {
@@ -73,6 +67,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe()
     }
   }, [])
+
+  // Perfil: efeito separado evita bloquear o lock interno do auth client.
+  useEffect(() => {
+    let mounted = true
+    const userId = user?.id
+
+    if (!userId) {
+      setProfile(null)
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    fetchProfile(userId).then((p) => {
+      if (mounted) {
+        setProfile(p)
+        setLoading(false)
+      }
+    })
+
+    return () => {
+      mounted = false
+    }
+  }, [user?.id])
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })

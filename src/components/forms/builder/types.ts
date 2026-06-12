@@ -81,7 +81,7 @@ export interface BuilderQuestion {
   metadata?: BuilderQuestionMeta
 }
 
-export type BuilderTab = 'editor' | 'fluxo' | 'design' | 'trilhas' | 'final'
+export type BuilderTab = 'editor' | 'fluxo' | 'configuracao' | 'trilhas'
 
 export function createLocalId() {
   return crypto.randomUUID()

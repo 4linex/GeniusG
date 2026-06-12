@@ -96,7 +96,18 @@ export function RecoveryReportDocument({ data }: RecoveryReportDocumentProps) {
       ? 'Relatório Individual do Aluno'
       : data.kind === 'form'
         ? 'Relatório do Formulário'
-        : 'Análise por Habilidades, TRI e Bloom'
+        : data.kind === 'dashboard'
+          ? 'Relatório Geral — Dashboard Consolidado'
+          : 'Análise por Habilidades, TRI e Bloom'
+
+  const areaTableTitle =
+    data.kind === 'student'
+      ? 'Desempenho por Formulário'
+      : data.kind === 'form'
+        ? 'Desempenho por Habilidade BNCC'
+        : data.kind === 'dashboard'
+          ? 'Desempenho por Formulário'
+          : 'Desempenho por Habilidade BNCC / SAEB'
 
   return (
     <div
@@ -177,6 +188,12 @@ export function RecoveryReportDocument({ data }: RecoveryReportDocumentProps) {
                   <dd className="font-medium text-gray-800">{data.averageTheta.toFixed(2)}</dd>
                 </div>
               )}
+              {data.summaryMetrics?.map((m) => (
+                <div key={m.label}>
+                  <dt className="text-gray-400">{m.label}</dt>
+                  <dd className="font-medium text-gray-800">{m.value}</dd>
+                </div>
+              ))}
             </dl>
           </section>
 
@@ -245,11 +262,7 @@ export function RecoveryReportDocument({ data }: RecoveryReportDocumentProps) {
           {/* Area performance */}
           <section className="rounded-xl border border-gray-100 overflow-hidden">
             <h2 className="text-sm font-bold text-gray-800 px-5 pt-5 pb-3">
-              {data.kind === 'student'
-                ? 'Desempenho por Formulário'
-                : data.kind === 'form'
-                  ? 'Desempenho por Habilidade BNCC'
-                  : 'Desempenho por Habilidade BNCC / SAEB'}
+              {areaTableTitle}
             </h2>
             <table className="w-full text-xs">
               <thead>
@@ -289,6 +302,42 @@ export function RecoveryReportDocument({ data }: RecoveryReportDocumentProps) {
               </tbody>
             </table>
           </section>
+
+          {/* Bloom section for skills/form/student */}
+          {data.kind === 'dashboard' && data.criticalSkillRows && data.criticalSkillRows.length > 0 && (
+            <section className="rounded-xl border border-gray-100 overflow-hidden">
+              <h2 className="text-sm font-bold text-gray-800 px-5 pt-5 pb-3">
+                Habilidades com maior déficit (BNCC / SAEB)
+              </h2>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-amber-50 text-amber-900">
+                    <th className="text-left py-2 px-5 font-semibold">Habilidade</th>
+                    <th className="text-left py-2 px-3 font-semibold w-[140px]">Desempenho</th>
+                    <th className="text-left py-2 px-5 font-semibold w-[100px]">Situação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.criticalSkillRows.map((row, i) => (
+                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                      <td className="py-2.5 px-5 font-medium text-gray-800">{row.label}</td>
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-2">
+                          <ProgressBar percentage={row.percentage} level={row.level} />
+                          <span className="font-semibold text-gray-700 w-8">{row.percentage}%</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-5">
+                        <span className="text-[10px] font-medium text-gray-600">
+                          {PERFORMANCE_LEVEL_LABELS[row.level]}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
 
           {/* Bloom section for skills/form/student */}
           {data.bloomRows && data.bloomRows.length > 0 && (

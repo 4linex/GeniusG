@@ -1,0 +1,65 @@
+import { supabase } from '@/lib/supabase'
+import { fetchAllInBatches } from '@/lib/supabaseBatch'
+import type { RawAnswerRow } from '@/lib/reportAnalytics'
+
+export interface NestedResponseAnswer {
+  is_correct: boolean | null
+  question: {
+    habilidade_bncc: string | null
+    descritor_saeb: string | null
+    nivel_bloom: string | null
+  } | null
+}
+
+export function parseNestedAnswer(
+  responseId: string,
+  answer: NestedResponseAnswer,
+): RawAnswerRow {
+  const q = answer.question
+  return {
+    response_id: responseId,
+    is_correct: Boolean(answer.is_correct),
+    habilidade: q?.habilidade_bncc || q?.descritor_saeb || 'Sem habilidade',
+    bloom: q?.nivel_bloom || 'Sem nível Bloom',
+  }
+}
+
+export function flattenNestedAnswers(
+  responses: Array<{ id: string; response_answers?: NestedResponseAnswer[] | null }>,
+): RawAnswerRow[] {
+  const rows: RawAnswerRow[] = []
+  for (const response of responses) {
+    for (const answer of response.response_answers || []) {
+      rows.push(parseNestedAnswer(response.id, answer))
+    }
+  }
+  return rows
+}
+
+const ANSWER_SELECT =
+  'is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom)'
+
+export async function fetchAnswersByResponseIds(responseIds: string[]): Promise<RawAnswerRow[]> {
+  if (responseIds.length === 0) return []
+
+  const chunks = await fetchAllInBatches(responseIds, async (chunk) => {
+    const { data, error } = await supabase
+      .from('response_answers')
+      .select(`response_id, ${ANSWER_SELECT}`)
+      .in('response_id', chunk)
+
+    if (error) throw error
+
+    return (data || []).map((row) => {
+      const q = row.question as unknown as NestedResponseAnswer['question']
+      return {
+        response_id: row.response_id,
+        is_correct: Boolean(row.is_correct),
+        habilidade: q?.habilidade_bncc || q?.descritor_saeb || 'Sem habilidade',
+        bloom: q?.nivel_bloom || 'Sem nível Bloom',
+      }
+    })
+  })
+
+  return chunks
+}

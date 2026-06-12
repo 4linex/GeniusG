@@ -100,6 +100,7 @@ export interface Form {
   id: string
   title: string
   description?: string | null
+  school_name?: string | null
   created_by?: string | null
   is_active: boolean
   status: FormStatus
@@ -162,6 +163,11 @@ export interface LearningTrail {
   pdf_url?: string | null
   link_url?: string | null
   content?: string | null
+  pedagogical_content?: string | null
+  pedagogical_pdf_url?: string | null
+  pedagogical_link_url?: string | null
+  pedagogical_objectives?: string | null
+  teacher_notes?: string | null
   created_by?: string | null
   created_at: string
 }

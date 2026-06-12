@@ -1,10 +1,12 @@
-import { supabase } from '@/lib/supabase'
 import { loadFormAssessmentDetail, loadTriByFormChart, type SkillBreakdownRow } from '@/lib/formAssessmentReport'
+import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
+import { resolveScopedFormIds } from '@/lib/scopedForms'
 import { NIVEL_PROFICIENCIA_LABELS } from '@/lib/scoring'
-import type { NivelProficiencia } from '@/types/database'
+import { supabase } from '@/lib/supabase'
+import type { NivelProficiencia, Profile } from '@/types/database'
 
-export type RecoveryReportKind = 'student' | 'form' | 'skills'
+export type RecoveryReportKind = 'student' | 'form' | 'skills' | 'dashboard'
 
 export type PerformanceLevel = 'adequado' | 'desenvolvimento' | 'iniciante' | 'nao_desenvolvido'
 
@@ -49,6 +51,8 @@ export interface RecoveryReportData {
   recommendations: string[]
   triSummary?: TriSummaryRow[]
   bloomRows?: AreaPerformanceRow[]
+  summaryMetrics?: { label: string; value: string }[]
+  criticalSkillRows?: AreaPerformanceRow[]
 }
 
 export const PERFORMANCE_LEVEL_LABELS: Record<PerformanceLevel, string> = {
@@ -134,6 +138,10 @@ function buildRecommendations(weakSkills: string[], kind: RecoveryReportKind): s
   } else if (kind === 'form') {
     recs.push('Revisar em sala as questões vinculadas às habilidades com menor desempenho.')
     recs.push('Utilizar trilhas de recomposição associadas à faixa de desempenho dos alunos.')
+  } else if (kind === 'dashboard') {
+    recs.push('Monitorar formulários com menor média TCT e revisar os itens associados.')
+    recs.push('Priorizar trilhas de recomposição para alunos na faixa inicial de proficiência.')
+    recs.push('Cruzar dados de Bloom, BNCC e TRI para planejar intervenções por turma ou escola.')
   } else {
     recs.push('Organizar intervenções por grupos de habilidades com desempenho abaixo de 60%.')
     recs.push('Cruzar dados de Bloom e BNCC para planejar atividades de complexidade gradual.')
@@ -151,28 +159,19 @@ async function aggregateSkillsFromResponseIds(responseIds: string[]) {
     return { bncc: [] as SkillBreakdownRow[], bloom: [] as SkillBreakdownRow[] }
   }
 
-  const { data: answers } = await supabase
-    .from('response_answers')
-    .select('is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom)')
-    .in('response_id', responseIds)
+  const answers = await fetchAnswersByResponseIds(responseIds)
 
   const byHabilidade = new Map<string, { total: number; correct: number }>()
   const byBloom = new Map<string, { total: number; correct: number }>()
 
-  for (const a of answers || []) {
-    const q = a.question as unknown as {
-      habilidade_bncc: string | null
-      descritor_saeb: string | null
-      nivel_bloom: string | null
-    } | null
-
-    const habKey = q?.habilidade_bncc || q?.descritor_saeb || 'Sem habilidade'
+  for (const a of answers) {
+    const habKey = a.habilidade
     const hab = byHabilidade.get(habKey) || { total: 0, correct: 0 }
     hab.total++
     if (a.is_correct) hab.correct++
     byHabilidade.set(habKey, hab)
 
-    const bloomKey = q?.nivel_bloom || 'Sem nível Bloom'
+    const bloomKey = a.bloom
     const bloom = byBloom.get(bloomKey) || { total: 0, correct: 0 }
     bloom.total++
     if (a.is_correct) bloom.correct++
@@ -373,7 +372,159 @@ export async function buildSkillsRecoveryReport(
   }
 }
 
+export async function buildDashboardRecoveryReport(
+  userId: string,
+  role: Profile['role'],
+): Promise<RecoveryReportData | null> {
+  const scopedFormIds = await resolveScopedFormIds(userId, role)
+
+  if (scopedFormIds !== null && scopedFormIds.length === 0) return null
+
+  let formsQuery = supabase
+    .from('forms')
+    .select('id, title, created_at, turma')
+    .order('created_at', { ascending: false })
+
+  if (scopedFormIds) formsQuery = formsQuery.in('id', scopedFormIds)
+
+  let linksQuery = supabase.from('form_links').select('id, form_id')
+  if (scopedFormIds) linksQuery = linksQuery.in('form_id', scopedFormIds)
+  else if (role === 'professor') linksQuery = linksQuery.eq('professor_id', userId)
+
+  let responsesQuery = supabase
+    .from('form_responses')
+    .select(
+      'id, form_id, student_email, percentual_acerto, theta, nivel_proficiencia, completed_at',
+    )
+
+  const [{ data: forms }, { data: links }] = await Promise.all([formsQuery, linksQuery])
+
+  const formIds = (forms || []).map((f) => f.id)
+  if (scopedFormIds && formIds.length > 0) {
+    responsesQuery = responsesQuery.in('form_id', formIds)
+  } else if (scopedFormIds) {
+    responsesQuery = responsesQuery.in('form_id', ['00000000-0000-0000-0000-000000000000'])
+  }
+
+  const { data: responses } = await responsesQuery
+  const responseList = responses || []
+
+  if (responseList.length === 0) return null
+
+  const responseIds = responseList.map((r) => r.id)
+  const { bncc, bloom } = await aggregateSkillsFromResponseIds(responseIds)
+  const triSummary = await loadTriByFormChart(scopedFormIds)
+
+  const tctScores = responseList
+    .map((r) => r.percentual_acerto)
+    .filter((s): s is number => s != null)
+  const overallPercentage = avg(tctScores)
+  const averageTheta = avgTheta(responseList.map((r) => r.theta ?? null))
+
+  const uniqueStudents = new Set(responseList.map((r) => r.student_email)).size
+  const weakSkills = bncc.filter((s) => s.percentage < 60).map((s) => s.label)
+  const criticalCount = weakSkills.length
+
+  const byNivel: Record<NivelProficiencia, number> = {
+    inicial: 0,
+    intermediario: 0,
+    avancado: 0,
+  }
+  for (const r of responseList) {
+    const n = r.nivel_proficiencia as NivelProficiencia | null
+    if (n && n in byNivel) byNivel[n]++
+  }
+
+  const formStats = new Map<
+    string,
+    { count: number; tct: number[]; theta: (number | null)[] }
+  >()
+  for (const r of responseList) {
+    const cur = formStats.get(r.form_id) || { count: 0, tct: [], theta: [] }
+    cur.count++
+    if (r.percentual_acerto != null) cur.tct.push(r.percentual_acerto)
+    cur.theta.push(r.theta)
+    formStats.set(r.form_id, cur)
+  }
+
+  const formAreaRows: AreaPerformanceRow[] = []
+  for (const f of forms || []) {
+    const s = formStats.get(f.id)
+    if (!s || s.count === 0) continue
+    const formTct = avg(s.tct)
+    const formTheta = avgTheta(s.theta)
+    formAreaRows.push({
+      label: f.title,
+      percentage: formTct,
+      level: percentageToLevel(formTct),
+      detail: `${s.count} respostas${formTheta != null ? ` · θ ${formTheta.toFixed(2)}` : ''}`,
+    })
+  }
+  formAreaRows.sort((a, b) => b.percentage - a.percentage)
+
+  const formsWithResponses = formAreaRows.length
+  const nivelParts = (['inicial', 'intermediario', 'avancado'] as NivelProficiencia[])
+    .filter((n) => byNivel[n] > 0)
+    .map((n) => `${NIVEL_PROFICIENCIA_LABELS[n]}: ${byNivel[n]}`)
+
+  const highlights: string[] = [
+    `${responseList.length} resposta(s) de ${uniqueStudents} aluno(s) em ${formsWithResponses} formulário(s).`,
+    `Média geral TCT: ${overallPercentage}%.`,
+    averageTheta != null
+      ? `Proficiência TRI média (θ): ${averageTheta.toFixed(2)}.`
+      : 'Dados TRI consolidados por avaliação abaixo.',
+    criticalCount > 0
+      ? `${criticalCount} habilidade(s) críticas (abaixo de 60% de acerto).`
+      : 'Nenhuma habilidade crítica identificada no conjunto analisado.',
+  ]
+
+  if (nivelParts.length > 0) {
+    highlights.push(`Proficiência — ${nivelParts.join('; ')}.`)
+  }
+
+  return {
+    kind: 'dashboard',
+    reportTitle: `${APP_NAME} — Relatório Geral`,
+    reportDate: formatReportDate(),
+    turma: 'Visão consolidada',
+    escola: 'Todas as escolas',
+    periodo: formatReportDate(),
+    overallPercentage,
+    averageTheta,
+    totalItems: responseList.length,
+    highlights,
+    summaryMetrics: [
+      { label: 'Avaliações (links)', value: String(links?.length ?? 0) },
+      { label: 'Formulários c/ respostas', value: String(formsWithResponses) },
+      { label: 'Alunos avaliados', value: String(uniqueStudents) },
+      { label: 'Total de respostas', value: String(responseList.length) },
+      { label: 'Média TCT geral', value: `${overallPercentage}%` },
+      { label: 'Habilidades críticas', value: String(criticalCount) },
+    ],
+    performanceBreakdown: buildBreakdownFromPercentages(
+      tctScores.map((pct) => ({ pct })),
+    ),
+    areaRows: formAreaRows.slice(0, 12),
+    criticalSkillRows: skillsToAreaRows(
+      bncc.filter((s) => s.percentage < 60).slice(0, 8),
+      'BNCC',
+    ),
+    bloomRows: skillsToAreaRows(bloom.slice(0, 8), 'Bloom'),
+    weakSkills: weakSkills.slice(0, 8),
+    recommendations: buildRecommendations(weakSkills, 'dashboard'),
+    triSummary: triSummary.slice(0, 10).map((t) => ({
+      label: t.title,
+      averageTheta: t.averageTheta,
+      averageTct: t.averageTct,
+      totalResponses: t.totalResponses,
+    })),
+  }
+}
+
 export function recoveryReportFilename(data: RecoveryReportData): string {
+  if (data.kind === 'dashboard') {
+    return `relatorio-geral-dashboard-${Date.now()}.pdf`
+  }
   const slug = data.studentName || data.formTitle || 'habilidades'
   const safe = slug.replace(/[^a-zA-Z0-9\u00C0-\u024F]+/g, '-').slice(0, 40)
   return `relatorio-${data.kind}-${safe}-${Date.now()}.pdf`

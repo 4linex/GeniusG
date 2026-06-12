@@ -33,7 +33,7 @@ export function ProtectedRoute({
 }
 
 export function PublicRoute() {
-  const { user, loading } = useAuth()
+  const { user, profile, loading } = useAuth()
 
   if (loading) {
     return (
@@ -43,7 +43,7 @@ export function PublicRoute() {
     )
   }
 
-  if (user) {
+  if (user && profile) {
     return <Navigate to="/dashboard" replace />
   }
 
