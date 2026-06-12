@@ -12,7 +12,8 @@ if (onCloudflare) {
   if (!url || !key) {
     console.error(
       '\n[build] ERRO: VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY não estão disponíveis no build.\n' +
-        'Cloudflare Pages → Settings → Variables and secrets → Production → confira os nomes exatos.\n' +
+        'Cloudflare Pages → Settings → Variables and secrets → Production.\n' +
+        'Se existir wrangler.toml no repo, remova-o — ele faz o Cloudflare ignorar variáveis do painel.\n' +
         'Depois: Deployments → Retry deployment.\n',
     )
     process.exit(1)

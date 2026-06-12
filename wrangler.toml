@@ -1,4 +1,0 @@
-# Cloudflare Pages — pasta gerada pelo Vite (`npm run build`)
-name = "geniusg"
-compatibility_date = "2026-06-12"
-pages_build_output_dir = "./dist"
