@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { BarChart3, FileBarChart } from 'lucide-react'
-import { useReportData } from '@/hooks/useReportData'
+import { useReportDataContext } from '@/contexts/ReportDataContext'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -34,7 +34,7 @@ type SkillsView = 'habilidade' | 'bloom' | 'tri'
 
 export function SkillsReportPage() {
   const { user, profile } = useAuth()
-  const { responses, answers, loading, error } = useReportData()
+  const { responses, answers, loading, error } = useReportDataContext()
   const [view, setView] = useState<SkillsView>('habilidade')
   const [filters, setFilters] = useState<ReportFilters>({})
   const [reportOpen, setReportOpen] = useState(false)
@@ -117,7 +117,7 @@ export function SkillsReportPage() {
     }
   }
 
-  if (loading) {
+  if (loading && responses.length === 0) {
     return (
       <div className="flex justify-center py-12">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-500/30 border-t-primary-500" />

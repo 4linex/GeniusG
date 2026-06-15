@@ -21,10 +21,10 @@ import { PERFORMANCE_STATUS_LABELS,
   getPerformanceStatus,
   groupResponsesByStudent,
   studentDetailPath,
-  useScopedResponses,
   type PerformanceStatus,
   type StudentSummary,
 } from '@/hooks/useScopedResponses'
+import { useReportDataContext } from '@/contexts/ReportDataContext'
 import { CHART_COLORS, DonutChart, VerticalBarChart } from '@/components/reports/ReportCharts'
 import { buildTctBuckets, uniqueForms } from '@/lib/reportAnalytics'
 import type { FormResponse } from '@/types/database'
@@ -123,10 +123,7 @@ function StudentCard({ student }: { student: StudentSummary }) {
 }
 
 export function ResponsesPage() {
-  const { responses, loading } = useScopedResponses(`
-    *,
-    form:forms(title, turma)
-  `)
+  const { responses, loading } = useReportDataContext()
 
   const [search, setSearch] = useState('')
   const [formFilter, setFormFilter] = useState('')
@@ -235,7 +232,7 @@ export function ResponsesPage() {
 
   const hasFilters = search || formFilter || turmaFilter || statusFilter || dateFrom || dateTo
 
-  if (loading) {
+  if (loading && responses.length === 0) {
     return (
       <div className="flex justify-center py-12">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-500/30 border-t-primary-500" />

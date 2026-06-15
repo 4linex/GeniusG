@@ -38,65 +38,94 @@ export function ReportFiltersBar({
       filters.search,
   )
 
+  const fieldCount =
+    (showSearch ? 1 : 0) +
+    (showForm ? 1 : 0) +
+    (showStudent ? 1 : 0) +
+    (showDates ? 2 : 0)
+
+  const gridCols =
+    fieldCount >= 5
+      ? 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5'
+      : fieldCount >= 4
+        ? 'sm:grid-cols-2 lg:grid-cols-4'
+        : fieldCount >= 3
+          ? 'sm:grid-cols-2 lg:grid-cols-3'
+          : fieldCount >= 2
+            ? 'sm:grid-cols-2'
+            : 'grid-cols-1'
+
   return (
     <Card className="p-4 sm:p-5 overflow-visible">
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[1.4fr_repeat(4,minmax(140px,1fr))] xl:items-end">
+      <div className={`grid gap-3 grid-cols-1 ${gridCols}`}>
         {showSearch && (
-          <div className="relative xl:col-span-1">
+          <div className="relative min-w-0">
             <Search
               size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"
+              className="absolute left-3 top-[2.125rem] text-slate-500 pointer-events-none z-10"
             />
-            <input
+            <Input
+              label="Buscar"
+              size="sm"
               type="search"
               value={filters.search ?? ''}
               onChange={(e) => patch({ search: e.target.value })}
               placeholder={searchPlaceholder}
-              className="w-full rounded-xl border border-white/10 bg-white/5 pl-10 pr-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+              className="pl-9"
             />
           </div>
         )}
 
         {showForm && (
-          <Select
-            label="Formulário"
-            size="sm"
-            value={filters.formId ?? ''}
-            onChange={(e) => patch({ formId: e.target.value || undefined })}
-            options={[
-              { value: '', label: 'Todos' },
-              ...forms.map((f) => ({ value: f.id, label: f.title })),
-            ]}
-          />
+          <div className="min-w-0">
+            <Select
+              label="Formulário"
+              size="sm"
+              value={filters.formId ?? ''}
+              onChange={(e) => patch({ formId: e.target.value || undefined })}
+              options={[
+                { value: '', label: 'Todos' },
+                ...forms.map((f) => ({ value: f.id, label: f.title })),
+              ]}
+            />
+          </div>
         )}
 
         {showStudent && (
-          <Select
-            label="Aluno"
-            size="sm"
-            value={filters.studentEmail ?? ''}
-            onChange={(e) => patch({ studentEmail: e.target.value || undefined })}
-            options={[
-              { value: '', label: 'Todos' },
-              ...students.map((s) => ({ value: s.email, label: s.name })),
-            ]}
-          />
+          <div className="min-w-0">
+            <Select
+              label="Aluno"
+              size="sm"
+              value={filters.studentEmail ?? ''}
+              onChange={(e) => patch({ studentEmail: e.target.value || undefined })}
+              options={[
+                { value: '', label: 'Todos' },
+                ...students.map((s) => ({ value: s.email, label: s.name })),
+              ]}
+            />
+          </div>
         )}
 
         {showDates && (
           <>
-            <Input
-              label="Período (de)"
-              type="date"
-              value={filters.dateFrom ?? ''}
-              onChange={(e) => patch({ dateFrom: e.target.value || undefined })}
-            />
-            <Input
-              label="Período (até)"
-              type="date"
-              value={filters.dateTo ?? ''}
-              onChange={(e) => patch({ dateTo: e.target.value || undefined })}
-            />
+            <div className="min-w-0">
+              <Input
+                label="Período (de)"
+                size="sm"
+                type="date"
+                value={filters.dateFrom ?? ''}
+                onChange={(e) => patch({ dateFrom: e.target.value || undefined })}
+              />
+            </div>
+            <div className="min-w-0">
+              <Input
+                label="Período (até)"
+                size="sm"
+                type="date"
+                value={filters.dateTo ?? ''}
+                onChange={(e) => patch({ dateTo: e.target.value || undefined })}
+              />
+            </div>
           </>
         )}
       </div>

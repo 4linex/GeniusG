@@ -12,18 +12,33 @@ async function getProfessorLinkIds(professorId: string): Promise<string[]> {
   return links?.map((l) => l.id) || []
 }
 
+const scopedCache = new Map<string, FormResponse[]>()
+
 export function useScopedResponses<T extends FormResponse = FormResponse>(
   select: string,
 ) {
   const { user, profile } = useAuth()
-  const [responses, setResponses] = useState<T[]>([])
-  const [loading, setLoading] = useState(true)
+  const cacheKey = user && profile ? `${user.id}:${profile.role}:${select}` : null
+  const cached = cacheKey ? (scopedCache.get(cacheKey) as T[] | undefined) : undefined
+
+  const [responses, setResponses] = useState<T[]>(cached ?? [])
+  const [loading, setLoading] = useState(!cached)
 
   useEffect(() => {
     if (!user || !profile) {
       setLoading(false)
       return
     }
+
+    const key = `${user.id}:${profile.role}:${select}`
+    const hit = scopedCache.get(key) as T[] | undefined
+    if (hit) {
+      setResponses(hit)
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
 
     const load = async () => {
       setLoading(true)
@@ -36,19 +51,29 @@ export function useScopedResponses<T extends FormResponse = FormResponse>(
       if (profile.role === 'professor') {
         const linkIds = await getProfessorLinkIds(user.id)
         if (linkIds.length === 0) {
-          setResponses([])
-          setLoading(false)
+          if (!cancelled) {
+            scopedCache.set(key, [])
+            setResponses([])
+            setLoading(false)
+          }
           return
         }
         query = query.in('form_link_id', linkIds)
       }
 
       const { data } = await query
-      setResponses((data as unknown as T[]) || [])
+      if (cancelled) return
+      const list = (data as unknown as T[]) || []
+      scopedCache.set(key, list as FormResponse[])
+      setResponses(list)
       setLoading(false)
     }
 
-    load()
+    void load()
+
+    return () => {
+      cancelled = true
+    }
   }, [user, profile, select])
 
   return { responses, loading }

@@ -194,6 +194,9 @@ export function FormViewPage() {
               {form.final_screen_message ||
                 'Suas respostas foram registradas com sucesso.'}
             </p>
+            <p className="text-xs text-slate-500 mt-3">
+              A trilha de recomposição é atribuída automaticamente e exibida apenas na área do professor.
+            </p>
           </Card>
         </div>
       )}

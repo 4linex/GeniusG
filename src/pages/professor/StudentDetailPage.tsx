@@ -2,7 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { ArrowLeft, ExternalLink, FileText, FileBarChart } from 'lucide-react'
 import { useScopedResponses } from '@/hooks/useScopedResponses'
-import { useReportData } from '@/hooks/useReportData'
+import { useReportDataContext } from '@/contexts/ReportDataContext'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -48,7 +48,7 @@ export function StudentDetailPage() {
   const responses = allResponses.filter((r) => r.student_email === email)
   const student = responses[0]
 
-  const { answers } = useReportData()
+  const { answers } = useReportDataContext()
   const responseIds = useMemo(() => new Set(responses.map((r) => r.id)), [responses])
   const bnccSkills = useMemo(
     () => aggregateSkillsFromAnswers(answers, responseIds, 'habilidade'),
@@ -89,7 +89,7 @@ export function StudentDetailPage() {
     }
   }
 
-  if (loading) {
+  if (loading && allResponses.length === 0) {
     return (
       <div className="flex justify-center py-12">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-500/30 border-t-primary-500" />

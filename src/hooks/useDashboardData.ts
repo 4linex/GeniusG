@@ -68,6 +68,15 @@ const emptyCharts: DashboardCharts = {
   formTctBars: [],
 }
 
+interface DashboardSnapshot {
+  stats: DashboardStats
+  charts: DashboardCharts
+  evaluations: DashboardEvaluation[]
+  triByForm: TriFormChartRow[]
+}
+
+const dashboardCache = new Map<string, DashboardSnapshot>()
+
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1)
 }
@@ -86,27 +95,43 @@ function isInPreviousMonth(iso: string) {
 }
 
 export function useDashboardData(userId: string | undefined, role: Profile['role'] | undefined) {
-  const [stats, setStats] = useState<DashboardStats>(emptyStats)
-  const [charts, setCharts] = useState<DashboardCharts>(emptyCharts)
-  const [evaluations, setEvaluations] = useState<DashboardEvaluation[]>([])
-  const [triByForm, setTriByForm] = useState<TriFormChartRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const cacheKey = userId && role ? `${userId}:${role}` : null
+  const cached = cacheKey ? dashboardCache.get(cacheKey) : undefined
+
+  const [stats, setStats] = useState<DashboardStats>(cached?.stats ?? emptyStats)
+  const [charts, setCharts] = useState<DashboardCharts>(cached?.charts ?? emptyCharts)
+  const [evaluations, setEvaluations] = useState<DashboardEvaluation[]>(cached?.evaluations ?? [])
+  const [triByForm, setTriByForm] = useState<TriFormChartRow[]>(cached?.triByForm ?? [])
+  const [loading, setLoading] = useState(!cached)
   const [error, setError] = useState<string | null>(null)
+
+  const applySnapshot = useCallback((snapshot: DashboardSnapshot) => {
+    setStats(snapshot.stats)
+    setCharts(snapshot.charts)
+    setEvaluations(snapshot.evaluations)
+    setTriByForm(snapshot.triByForm)
+  }, [])
 
   const fetchData = useCallback(async () => {
     if (!userId || !role) return
 
-    setLoading(true)
+    const key = `${userId}:${role}`
+    const hadData = dashboardCache.has(key)
+    if (!hadData) setLoading(true)
     setError(null)
 
     try {
       const scopedFormIds = await resolveScopedFormIds(userId, role)
 
       if (scopedFormIds !== null && scopedFormIds.length === 0) {
-        setStats(emptyStats)
-        setCharts(emptyCharts)
-        setEvaluations([])
-        setTriByForm([])
+        const empty: DashboardSnapshot = {
+          stats: emptyStats,
+          charts: emptyCharts,
+          evaluations: [],
+          triByForm: [],
+        }
+        dashboardCache.set(key, empty)
+        applySnapshot(empty)
         setLoading(false)
         return
       }
@@ -292,41 +317,53 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
 
       const chartData = await loadTriByFormChart(scopedFormIds)
 
-      setStats({
-        avaliacoesAplicadas,
-        avaliacoesMesAtual,
-        alunosAvaliados,
-        alunosMesAtual,
-        habilidadesCriticas,
-        mediaTurma,
-        mediaMesAnterior,
-        totalRespostas: responseList.length,
-        formulariosComRespostas: evalRows.filter((e) => e.total_responses > 0).length,
-      })
-      setCharts({
-        byNivel,
-        statusCounts,
-        tctBuckets,
-        criticalSkills,
-        bloomSkills,
-        formTctBars,
-      })
-      setEvaluations(latestEvaluations.slice(0, 10))
-      setTriByForm(chartData)
+      const snapshot: DashboardSnapshot = {
+        stats: {
+          avaliacoesAplicadas,
+          avaliacoesMesAtual,
+          alunosAvaliados,
+          alunosMesAtual,
+          habilidadesCriticas,
+          mediaTurma,
+          mediaMesAnterior,
+          totalRespostas: responseList.length,
+          formulariosComRespostas: evalRows.filter((e) => e.total_responses > 0).length,
+        },
+        charts: {
+          byNivel,
+          statusCounts,
+          tctBuckets,
+          criticalSkills,
+          bloomSkills,
+          formTctBars,
+        },
+        evaluations: latestEvaluations.slice(0, 10),
+        triByForm: chartData,
+      }
+      dashboardCache.set(key, snapshot)
+      applySnapshot(snapshot)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar dashboard')
     } finally {
       setLoading(false)
     }
-  }, [userId, role])
+  }, [userId, role, applySnapshot])
 
   useEffect(() => {
     if (!userId || !role) {
       setLoading(false)
       return
     }
+
+    const hit = dashboardCache.get(`${userId}:${role}`)
+    if (hit) {
+      applySnapshot(hit)
+      setLoading(false)
+      return
+    }
+
     fetchData()
-  }, [userId, role, fetchData])
+  }, [userId, role, fetchData, applySnapshot])
 
   const updateFormStatus = useCallback(
     async (formId: string, status: FormStatus) => {

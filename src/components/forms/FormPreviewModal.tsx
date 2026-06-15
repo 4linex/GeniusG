@@ -9,14 +9,6 @@ import type { BuilderQuestion } from '@/components/forms/builder/types'
 import { needsAlternatives } from '@/types/questionTypes'
 import { APP_BADGE } from '@/lib/branding'
 import { GamifiedEmojiBackground } from '@/components/student/GamifiedEmojiBackground'
-import { RocketTrailUnlock } from '@/components/student/RocketTrailUnlock'
-import type { StudentAssignedTrail } from '@/lib/studentForm'
-
-const PREVIEW_TRAIL: StudentAssignedTrail = {
-  title: 'Trilha de recomposição (prévia)',
-  description: 'Exemplo da trilha que o aluno receberá após decolar o foguete.',
-  content: 'Revise os conceitos principais com o material indicado pelo professor.',
-}
 
 type PreviewStep = 'access' | 'questions' | 'final'
 
@@ -265,11 +257,9 @@ export function FormPreviewModal({ open, onClose, config }: FormPreviewModalProp
                 {finalScreenMessage ||
                   'Suas respostas foram registradas com sucesso. Seu professor receberá o diagnóstico completo.'}
               </p>
-              {isGamified ? (
-                <RocketTrailUnlock trail={PREVIEW_TRAIL} accent={accent} />
-              ) : (
-                <p className="text-xs text-slate-500 mt-6">O aluno vê apenas esta mensagem — sem nota ou ranking.</p>
-              )}
+              <p className="text-sm text-slate-500 mt-4">
+                O aluno vê apenas esta mensagem — sem nota, ranking ou trilha de aprendizagem.
+              </p>
             </div>
           </div>
         )}

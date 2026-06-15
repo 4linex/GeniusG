@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/Button'
 import { ScrollArea } from '@/components/ui/ScrollArea'
 import { PageShell } from '@/components/layout/PageShell'
+import { ReportDataProvider } from '@/contexts/ReportDataContext'
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
 
 interface NavItem {
@@ -321,7 +322,9 @@ function DashboardLayoutInner() {
 export function DashboardLayout() {
   return (
     <SidebarProvider>
-      <DashboardLayoutInner />
+      <ReportDataProvider>
+        <DashboardLayoutInner />
+      </ReportDataProvider>
     </SidebarProvider>
   )
 }

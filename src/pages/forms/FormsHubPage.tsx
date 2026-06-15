@@ -25,11 +25,25 @@ interface FormWithLinks extends Form {
   question_count?: number
 }
 
+interface FormsHubSnapshot {
+  forms: FormWithLinks[]
+}
+
+const formsHubCache = new Map<string, FormsHubSnapshot>()
+
+function formsHubCacheKey(userId: string, role: string, canManageForms: boolean) {
+  return `${userId}:${role}:${canManageForms}`
+}
+
 export function FormsHubPage() {
   const { user, profile, loading: authLoading, hasRole } = useAuth()
   const canManageForms = hasRole('root', 'admin')
-  const [forms, setForms] = useState<FormWithLinks[]>([])
-  const [loading, setLoading] = useState(true)
+  const cacheKey =
+    user && profile ? formsHubCacheKey(user.id, profile.role, canManageForms) : null
+  const cached = cacheKey ? formsHubCache.get(cacheKey) : undefined
+
+  const [forms, setForms] = useState<FormWithLinks[]>(cached?.forms ?? [])
+  const [loading, setLoading] = useState(!cached)
   const [deleteTarget, setDeleteTarget] = useState<Form | null>(null)
   const [deleteLinkTarget, setDeleteLinkTarget] = useState<(FormLink & { professor_name?: string }) | null>(
     null,
@@ -52,8 +66,10 @@ export function FormsHubPage() {
   }, [forms.length])
 
   const loadData = async () => {
-    if (!user) return
-    setLoading(true)
+    if (!user || !profile) return
+    const key = formsHubCacheKey(user.id, profile.role, canManageForms)
+    const hadData = formsHubCache.has(key)
+    if (!hadData) setLoading(true)
     setError('')
 
     let formsQuery = supabase.from('forms').select('*').order('created_at', { ascending: false })
@@ -101,13 +117,13 @@ export function FormsHubPage() {
       linksByForm.set(link.form_id, list)
     }
 
-    setForms(
-      (formsData || []).map((f) => ({
-        ...(f as Form),
-        links: linksByForm.get(f.id) || [],
-        question_count: countByForm.get(f.id) || 0,
-      })),
-    )
+    const nextForms = (formsData || []).map((f) => ({
+      ...(f as Form),
+      links: linksByForm.get(f.id) || [],
+      question_count: countByForm.get(f.id) || 0,
+    }))
+    formsHubCache.set(key, { forms: nextForms })
+    setForms(nextForms)
     setLoading(false)
   }
 
@@ -116,6 +132,15 @@ export function FormsHubPage() {
       if (!authLoading) setLoading(false)
       return
     }
+
+    const key = formsHubCacheKey(user.id, profile.role, canManageForms)
+    const hit = formsHubCache.get(key)
+    if (hit) {
+      setForms(hit.forms)
+      setLoading(false)
+      return
+    }
+
     loadData()
   }, [user, profile, authLoading, canManageForms])
 
@@ -210,7 +235,7 @@ export function FormsHubPage() {
         <div className="mb-4 rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400">{error}</div>
       )}
 
-      {loading ? (
+      {loading && forms.length === 0 ? (
         <div className="flex justify-center py-12">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-500/30 border-t-primary-500" />
         </div>

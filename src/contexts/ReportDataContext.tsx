@@ -1,15 +1,32 @@
-import { useCallback, useEffect, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import {
   getReportDataCache,
   loadReportData,
   setReportDataCache,
+  type ReportDataSnapshot,
 } from '@/lib/reportDataLoader'
 import type { RawAnswerRow, ResponseWithForm } from '@/lib/reportAnalytics'
 
-/** Fora de ReportDataProvider — usa o mesmo cache compartilhado. */
-export function useReportData() {
+interface ReportDataContextValue {
+  responses: ResponseWithForm[]
+  answers: RawAnswerRow[]
+  loading: boolean
+  error: string | null
+  refetch: () => Promise<void>
+}
+
+const ReportDataContext = createContext<ReportDataContextValue | undefined>(undefined)
+
+export function ReportDataProvider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth()
   const cached =
     user && profile ? getReportDataCache(user.id, profile.role) : null
@@ -18,6 +35,11 @@ export function useReportData() {
   const [answers, setAnswers] = useState<RawAnswerRow[]>(cached?.answers ?? [])
   const [loading, setLoading] = useState(!cached)
   const [error, setError] = useState<string | null>(null)
+
+  const applySnapshot = useCallback((snapshot: ReportDataSnapshot) => {
+    setResponses(snapshot.responses)
+    setAnswers(snapshot.answers)
+  }, [])
 
   const refetch = useCallback(async () => {
     if (!user || !profile) return
@@ -29,8 +51,7 @@ export function useReportData() {
     try {
       const snapshot = await loadReportData(user.id, profile.role)
       setReportDataCache(user.id, profile.role, snapshot)
-      setResponses(snapshot.responses)
-      setAnswers(snapshot.answers)
+      applySnapshot(snapshot)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar relatórios')
       if (!hadData) {
@@ -40,7 +61,7 @@ export function useReportData() {
     } finally {
       setLoading(false)
     }
-  }, [user, profile])
+  }, [user, profile, applySnapshot])
 
   useEffect(() => {
     if (!user || !profile) {
@@ -50,8 +71,7 @@ export function useReportData() {
 
     const snapshot = getReportDataCache(user.id, profile.role)
     if (snapshot) {
-      setResponses(snapshot.responses)
-      setAnswers(snapshot.answers)
+      applySnapshot(snapshot)
       setLoading(false)
       return
     }
@@ -65,8 +85,7 @@ export function useReportData() {
         const next = await loadReportData(user.id, profile.role)
         if (cancelled) return
         setReportDataCache(user.id, profile.role, next)
-        setResponses(next.responses)
-        setAnswers(next.answers)
+        applySnapshot(next)
       } catch (err) {
         if (cancelled) return
         setError(err instanceof Error ? err.message : 'Erro ao carregar relatórios')
@@ -80,9 +99,21 @@ export function useReportData() {
     return () => {
       cancelled = true
     }
-  }, [user, profile])
+  }, [user, profile, applySnapshot])
 
   useRefreshOnFocus(refetch, Boolean(user && profile))
 
-  return { responses, answers, loading, error, refetch }
+  return (
+    <ReportDataContext.Provider value={{ responses, answers, loading, error, refetch }}>
+      {children}
+    </ReportDataContext.Provider>
+  )
+}
+
+export function useReportDataContext() {
+  const ctx = useContext(ReportDataContext)
+  if (!ctx) {
+    throw new Error('useReportDataContext deve ser usado dentro de ReportDataProvider')
+  }
+  return ctx
 }

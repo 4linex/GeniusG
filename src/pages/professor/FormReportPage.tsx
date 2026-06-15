@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BarChart3, ChevronRight, FileBarChart } from 'lucide-react'
-import { useReportData } from '@/hooks/useReportData'
+import { useReportDataContext } from '@/contexts/ReportDataContext'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -25,7 +25,7 @@ import type { NivelProficiencia } from '@/types/database'
 const NIVEL_ORDER: NivelProficiencia[] = ['inicial', 'intermediario', 'avancado']
 
 export function FormReportPage() {
-  const { responses, loading } = useReportData()
+  const { responses, loading } = useReportDataContext()
   const [filters, setFilters] = useState<ReportFilters>({})
   const [reportOpen, setReportOpen] = useState(false)
   const [reportData, setReportData] = useState<RecoveryReportData | null>(null)
@@ -89,7 +89,7 @@ export function FormReportPage() {
     }
   }
 
-  if (loading) {
+  if (loading && responses.length === 0) {
     return (
       <div className="flex justify-center py-12">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-500/30 border-t-primary-500" />
