@@ -1,6 +1,6 @@
 import { supabase, SUPABASE_FUNCTIONS_URL } from '@/lib/supabase'
 import { invokeEdgeFunction } from '@/lib/edgeFunctions'
-import { findFormTrailByPercent, resolveTrailContent } from '@/lib/formTrails'
+import { findFormTrailByPercent } from '@/lib/formTrails'
 import {
   defaultTriParams,
   processAssessment,
@@ -21,7 +21,7 @@ export interface StudentAssignedTrail {
 }
 
 export interface StudentSubmitResult {
-  trail: StudentAssignedTrail | null
+  ok: true
 }
 
 export interface StudentAlternative {
@@ -314,18 +314,14 @@ async function submitStudentFormFromDb(
     acertoPercent,
   )
 
-  let assignedTrail: StudentAssignedTrail | null = null
-
   if (matchedTrail) {
     await supabase.from('student_trail_assignments').insert({
       response_id: response.id,
       form_trail_id: matchedTrail.id,
     })
-
-    assignedTrail = resolveTrailContent(matchedTrail)
   }
 
-  return { trail: assignedTrail }
+  return { ok: true as const }
 }
 
 export async function submitStudentForm(

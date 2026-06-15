@@ -5,7 +5,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { WrongQuestionDetailModal } from '@/components/dashboard/WrongQuestionDetailModal'
-import { loadStudentResponseDetail, type WrongAnswerRow } from '@/lib/formAssessmentReport'
+import { RecommendedTrailSection } from '@/components/trails/RecommendedTrailSection'
+import { loadStudentResponseDetail, type WrongAnswerRow, type ResponseRecommendedTrail } from '@/lib/formAssessmentReport'
 import { resolveScopedFormIds, canAccessForm } from '@/lib/scopedForms'
 import { formatDate, formatScore } from '@/lib/utils'
 import { stripHtml } from '@/lib/richText'
@@ -27,6 +28,7 @@ export function FormStudentResponsePage() {
   const [correctAnswers, setCorrectAnswers] = useState<number | null>(null)
   const [totalQuestions, setTotalQuestions] = useState<number | null>(null)
   const [wrongAnswers, setWrongAnswers] = useState<WrongAnswerRow[]>([])
+  const [recommendedTrail, setRecommendedTrail] = useState<ResponseRecommendedTrail | null>(null)
   const [selectedQuestion, setSelectedQuestion] = useState<WrongAnswerRow | null>(null)
 
   useEffect(() => {
@@ -59,6 +61,7 @@ export function FormStudentResponsePage() {
         setCorrectAnswers(r.correct_answers)
         setTotalQuestions(r.total_questions)
         setWrongAnswers(data.wrongAnswers)
+        setRecommendedTrail(data.recommendedTrail)
       } catch (err) {
         console.error(err)
         setDenied(true)
@@ -125,6 +128,21 @@ export function FormStudentResponsePage() {
           )}
         </div>
       </div>
+
+      {recommendedTrail ? (
+        <RecommendedTrailSection
+          title={recommendedTrail.title}
+          percentRange={recommendedTrail.percentRange}
+          trail={recommendedTrail.learningTrail}
+          studentPercent={percentual}
+        />
+      ) : (
+        <Card className="mb-8">
+          <p className="text-sm text-slate-500 text-center py-4">
+            Nenhuma trilha de recomposição foi atribuída para esta faixa de desempenho.
+          </p>
+        </Card>
+      )}
 
       <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
         <XCircle size={20} className="text-red-400" />

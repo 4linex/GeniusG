@@ -10,12 +10,6 @@ function thetaToPercent(theta: number): number {
   return Math.max(0, Math.min(100, ((theta - THETA_MIN) / (THETA_MAX - THETA_MIN)) * 100))
 }
 
-function thetaBarColor(theta: number): string {
-  if (theta >= 0.5) return 'from-emerald-600 to-emerald-400'
-  if (theta >= -0.5) return 'from-amber-600 to-amber-400'
-  return 'from-red-600 to-red-400'
-}
-
 function thetaBadgeClass(theta: number): string {
   if (theta >= 0.5) return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
   if (theta >= -0.5) return 'bg-amber-500/15 text-amber-300 border-amber-500/30'
@@ -97,24 +91,11 @@ export function TriByFormChart({ data, className }: TriByFormChartProps) {
                 aria-hidden
               />
               {markerLeft != null && (
-                <>
-                  <div
-                    className={cn(
-                      'absolute top-1/2 -translate-y-1/2 h-3 rounded-full bg-gradient-to-r shadow-lg transition-all duration-500',
-                      thetaBarColor(theta),
-                    )}
-                    style={{
-                      left: 0,
-                      width: `${markerLeft}%`,
-                      minWidth: markerLeft > 0 ? '4px' : 0,
-                    }}
-                  />
-                  <div
-                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-primary-400 shadow-md z-20"
-                    style={{ left: `calc(${markerLeft}% - 6px)` }}
-                    title={`θ = ${theta.toFixed(2)}`}
-                  />
-                </>
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-primary-400 shadow-md z-20"
+                  style={{ left: `clamp(0px, calc(${markerLeft}% - 6px), calc(100% - 12px))` }}
+                  title={`θ = ${theta.toFixed(2)}`}
+                />
               )}
             </div>
 

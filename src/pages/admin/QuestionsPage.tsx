@@ -19,10 +19,10 @@ import {
 import type { QuestionType } from '@/types/questionTypes'
 import { needsAlternatives, supportsTriScoring } from '@/types/questionTypes'
 import { QuestionTypeBadge } from '@/components/forms/QuestionTypePicker'
-import { Plus, Pencil, Trash2, Eye, ChevronDown } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
+import { Pagination, paginateSlice } from '@/components/ui/Pagination'
 
-const QUESTIONS_PAGE_SIZE = 5
+const QUESTIONS_PAGE_SIZE = 10
 
 export function QuestionsPage() {
   const { user, profile } = useAuth()
@@ -35,8 +35,7 @@ export function QuestionsPage() {
   const [filterComponente, setFilterComponente] = useState('')
   const [previewQuestion, setPreviewQuestion] = useState<Question | null>(null)
   const [previewAlternatives, setPreviewAlternatives] = useState<QuestionAlternative[]>([])
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
-  const [visibleByGroup, setVisibleByGroup] = useState<Record<string, number>>({})
+  const [page, setPage] = useState(1)
 
   const loadQuestions = async () => {
     setLoading(true)
@@ -58,8 +57,7 @@ export function QuestionsPage() {
   }, [])
 
   useEffect(() => {
-    setExpandedGroups(new Set())
-    setVisibleByGroup({})
+    setPage(1)
   }, [filterAno, filterComponente])
 
   const filtered = useMemo(() => {
@@ -70,39 +68,10 @@ export function QuestionsPage() {
     })
   }, [questions, filterAno, filterComponente])
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, Question[]>()
-    for (const q of filtered) {
-      const key = `${q.ano_serie}|||${q.componente_curricular}`
-      const list = map.get(key) || []
-      list.push(q)
-      map.set(key, list)
-    }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b, 'pt-BR'))
-  }, [filtered])
-
-  const toggleGroup = (key: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-        setVisibleByGroup((counts) => ({
-          ...counts,
-          [key]: counts[key] ?? QUESTIONS_PAGE_SIZE,
-        }))
-      }
-      return next
-    })
-  }
-
-  const loadMoreInGroup = (key: string, total: number) => {
-    setVisibleByGroup((prev) => ({
-      ...prev,
-      [key]: Math.min((prev[key] ?? QUESTIONS_PAGE_SIZE) + QUESTIONS_PAGE_SIZE, total),
-    }))
-  }
+  const paginatedQuestions = useMemo(
+    () => paginateSlice(filtered, page, QUESTIONS_PAGE_SIZE),
+    [filtered, page],
+  )
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return
@@ -155,12 +124,14 @@ export function QuestionsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <Select
           label="Ano/Série"
+          size="sm"
           value={filterAno}
           onChange={(e) => setFilterAno(e.target.value)}
           options={[{ value: '', label: 'Todos os anos' }, ...ANO_SERIE_OPTIONS]}
         />
         <Select
           label="Componente curricular"
+          size="sm"
           value={filterComponente}
           onChange={(e) => setFilterComponente(e.target.value)}
           options={[{ value: '', label: 'Todos os componentes' }, ...COMPONENTE_OPTIONS]}
@@ -182,100 +153,58 @@ export function QuestionsPage() {
           </p>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {grouped.map(([key, items]) => {
-            const [ano, componente] = key.split('|||')
-            const isExpanded = expandedGroups.has(key)
-            const visibleCount = visibleByGroup[key] ?? QUESTIONS_PAGE_SIZE
-            const visibleItems = items.slice(0, visibleCount)
-            const hasMore = visibleCount < items.length
-            return (
-              <section key={key} className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(key)}
-                  aria-expanded={isExpanded}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.03] transition-colors"
-                >
-                  <ChevronDown
-                    size={18}
-                    className={cn(
-                      'shrink-0 text-slate-500 transition-transform duration-200',
-                      !isExpanded && '-rotate-90',
+        <div className="space-y-3">
+          {paginatedQuestions.map((q) => (
+            <Card key={q.id} hover>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <h3 className="font-medium text-white truncate">{q.title}</h3>
+                    <Badge variant="default">{q.ano_serie}</Badge>
+                    <Badge variant="info">{q.componente_curricular}</Badge>
+                    <QuestionTypeBadge type={(q.question_type || 'multipla_escolha') as QuestionType} />
+                    {q.nivel_dificuldade && (
+                      <Badge variant="info">{q.nivel_dificuldade}</Badge>
                     )}
-                  />
-                  <h2 className="text-sm font-semibold text-slate-300">{ano}</h2>
-                  <span className="text-slate-600">·</span>
-                  <h2 className="text-sm font-semibold text-primary-300">{componente}</h2>
-                  <Badge variant="default">{items.length}</Badge>
-                </button>
-                {isExpanded && (
-                  <div className="space-y-3 px-4 pb-4">
-                    {visibleItems.map((q) => (
-                    <Card key={q.id} hover>
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <h3 className="font-medium text-white truncate">{q.title}</h3>
-                            <QuestionTypeBadge type={(q.question_type || 'multipla_escolha') as QuestionType} />
-                            {q.nivel_dificuldade && (
-                              <Badge variant="info">{q.nivel_dificuldade}</Badge>
-                            )}
-                            {q.is_form_exclusive && (
-                              <Badge variant="default">Formulário</Badge>
-                            )}
-                            {supportsTriScoring((q.question_type || 'multipla_escolha') as QuestionType) &&
-                              q.point_value != null &&
-                              q.point_value > 0 && (
-                                <Badge variant="warning">
-                                  {q.point_value} {q.point_value === 1 ? 'pt' : 'pts'}
-                                </Badge>
-                              )}
-                          </div>
-                          <p className="text-sm text-slate-400 line-clamp-2">{stripHtml(q.enunciado)}</p>
-                          <div className="flex gap-3 mt-2 text-xs text-slate-500">
-                            {q.codigo_item && <span>Cód: {q.codigo_item}</span>}
-                            <span>{formatDate(q.created_at)}</span>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 shrink-0">
-                          <Button variant="ghost" size="sm" onClick={() => openPreview(q)} title="Visualizar">
-                            <Eye size={16} />
-                          </Button>
-                          <Link to={`/admin/questoes/${q.id}`}>
-                            <Button variant="ghost" size="sm">
-                              <Pencil size={16} />
-                            </Button>
-                          </Link>
-                          <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(q)}>
-                            <Trash2 size={16} className="text-red-400" />
-                          </Button>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                    {hasMore && (
-                      <div className="flex justify-center pt-1">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => loadMoreInGroup(key, items.length)}
-                        >
-                          Ver mais ({items.length - visibleCount} restantes)
-                        </Button>
-                      </div>
+                    {q.is_form_exclusive && (
+                      <Badge variant="default">Formulário</Badge>
                     )}
-                    {!hasMore && items.length > QUESTIONS_PAGE_SIZE && (
-                      <p className="text-center text-xs text-slate-500 pt-1">
-                        Todas as {items.length} questões exibidas
-                      </p>
-                    )}
+                    {supportsTriScoring((q.question_type || 'multipla_escolha') as QuestionType) &&
+                      q.point_value != null &&
+                      q.point_value > 0 && (
+                        <Badge variant="warning">
+                          {q.point_value} {q.point_value === 1 ? 'pt' : 'pts'}
+                        </Badge>
+                      )}
                   </div>
-                )}
-              </section>
-            )
-          })}
+                  <p className="text-sm text-slate-400 line-clamp-2">{stripHtml(q.enunciado)}</p>
+                  <div className="flex gap-3 mt-2 text-xs text-slate-500">
+                    {q.codigo_item && <span>Cód: {q.codigo_item}</span>}
+                    <span>{formatDate(q.created_at)}</span>
+                  </div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Button variant="ghost" size="sm" onClick={() => openPreview(q)} title="Visualizar">
+                    <Eye size={16} />
+                  </Button>
+                  <Link to={`/admin/questoes/${q.id}`}>
+                    <Button variant="ghost" size="sm">
+                      <Pencil size={16} />
+                    </Button>
+                  </Link>
+                  <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(q)}>
+                    <Trash2 size={16} className="text-red-400" />
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+          <Pagination
+            page={page}
+            pageSize={QUESTIONS_PAGE_SIZE}
+            total={filtered.length}
+            onPageChange={setPage}
+          />
         </div>
       )}
 

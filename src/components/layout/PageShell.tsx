@@ -17,7 +17,7 @@ const WIDTH: Record<NonNullable<PageShellProps['width']>, string> = {
 
 export function PageShell({ children, className, width = 'xl' }: PageShellProps) {
   return (
-    <div className={cn('w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8', WIDTH[width], className)}>
+    <div className={cn('w-full mx-auto px-4 sm:px-6 lg:px-8 pt-8 sm:pt-10 pb-6 sm:pb-8', WIDTH[width], className)}>
       {children}
     </div>
   )

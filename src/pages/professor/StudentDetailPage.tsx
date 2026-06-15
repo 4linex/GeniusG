@@ -14,14 +14,14 @@ import { aggregateSkillsFromAnswers } from '@/lib/reportAnalytics'
 import { formatDate, formatScore } from '@/lib/utils'
 import { NIVEL_PROFICIENCIA_LABELS } from '@/lib/scoring'
 import { formatPercentRange } from '@/lib/formTrails'
-import type { FormResponse, FormTrail, LearningTrail, NivelProficiencia } from '@/types/database'
+import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
+import type { FormResponse, FormTrail, LearningTrail } from '@/types/database'
 
 interface ResponseWithTrail extends FormResponse {
   form?: { title: string }
   trail_assignment?: {
-    trail: { title: string; pdf_url: string | null; link_url: string | null; nivel_proficiencia: NivelProficiencia | null } | null
     form_trail: Pick<FormTrail, 'min_percent' | 'max_percent'> & {
-      learning_trail?: Pick<LearningTrail, 'title' | 'pdf_url' | 'link_url'> | null
+      learning_trail?: LearningTrail | null
     } | null
   } | null
 }
@@ -37,11 +37,10 @@ export function StudentDetailPage() {
     *,
     form:forms(title),
     trail_assignment:student_trail_assignments(
-      trail:learning_trails(title, pdf_url, link_url, nivel_proficiencia),
       form_trail:form_trails(
       min_percent,
       max_percent,
-      learning_trail:learning_trails(title, pdf_url, link_url)
+      learning_trail:learning_trails(${PROFESSOR_TRAIL_COLUMNS})
     )
     )
   `)
@@ -205,9 +204,7 @@ export function StudentDetailPage() {
       <div className="space-y-3">
         {responses.map((r) => {
           const formTrail = r.trail_assignment?.form_trail
-          const globalTrail = r.trail_assignment?.trail
-          const bankTrail = formTrail?.learning_trail
-          const trail = bankTrail || globalTrail
+          const trail = formTrail?.learning_trail
           const trailLabel =
             formTrail?.min_percent != null && formTrail?.max_percent != null
               ? formatPercentRange(formTrail.min_percent, formTrail.max_percent)
@@ -233,32 +230,32 @@ export function StudentDetailPage() {
                   </p>
                 </div>
                 {trail && (
-                  <div className="text-right shrink-0">
+                  <div className="text-right shrink-0 max-w-xs">
                     <p className="text-xs text-slate-500 mb-1">Trilha recomendada</p>
                     {trailLabel && (
                       <Badge variant="default" className="mb-1">{trailLabel}</Badge>
                     )}
                     <p className="text-sm text-primary-300 font-medium">{trail.title}</p>
-                    {trail.pdf_url && (
+                    {trail.pedagogical_pdf_url && (
                       <a
-                        href={trail.pdf_url}
+                        href={trail.pedagogical_pdf_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs text-primary-400 mt-1"
                       >
                         <FileText size={12} />
-                        Abrir PDF
+                        PDF pedagógico
                       </a>
                     )}
-                    {trail.link_url && (
+                    {trail.pedagogical_link_url && (
                       <a
-                        href={trail.link_url}
+                        href={trail.pedagogical_link_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs text-primary-400 mt-1 ml-2"
                       >
                         <ExternalLink size={12} />
-                        Abrir link
+                        Recursos
                       </a>
                     )}
                   </div>

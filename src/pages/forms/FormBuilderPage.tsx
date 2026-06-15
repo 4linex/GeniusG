@@ -282,6 +282,7 @@ export function FormBuilderPage() {
 
       <div className="md:hidden px-3 py-2 border-b border-white/10 bg-[#0a0e1a]">
         <Select
+          size="sm"
           value={activeTab}
           onChange={(e) => setActiveTab(e.target.value as BuilderTab)}
           options={TABS.map((t) => ({ value: t.id, label: t.label }))}
@@ -353,13 +354,15 @@ export function FormBuilderPage() {
             <label className="block text-sm font-medium text-slate-300 mb-2">Modo</label>
             <FormModeToggle value={formMode} onChange={setFormMode} />
             <p className="text-xs text-slate-500 mt-2">
-              No modo gamificado, o aluno vê emojis animados, mensagens de incentivo e decola um foguete
-              para receber a trilha — sem pontuação ou ranking.
+              No modo gamificado, o aluno vê emojis animados e mensagens de incentivo — sem
+              pontuação, ranking ou trilha visível. A trilha recomendada fica disponível apenas
+              para o professor.
             </p>
           </div>
 
           <Input
             label="Nome da escola"
+            size="sm"
             value={schoolName}
             onChange={(e) => setSchoolName(e.target.value)}
             placeholder="Ex.: E.M. Professor João Silva"
@@ -367,6 +370,7 @@ export function FormBuilderPage() {
 
           <Select
             label="Série"
+            size="sm"
             value={turma}
             onChange={(e) => setTurma(e.target.value)}
             options={TURMA_OPTIONS}
@@ -374,6 +378,7 @@ export function FormBuilderPage() {
 
           <Select
             label="Status"
+            size="sm"
             value={status}
             onChange={(e) => setStatus(e.target.value as FormStatus)}
             options={Object.entries(FORM_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
@@ -421,6 +426,7 @@ export function FormBuilderPage() {
 
           <Input
             label="Total esperado de alunos"
+            size="sm"
             type="number"
             min="0"
             value={expectedStudents}
@@ -432,12 +438,14 @@ export function FormBuilderPage() {
               <h3 className="text-base font-semibold text-white mb-1">Tela final</h3>
               <p className="text-sm text-slate-400">
                 Mensagem exibida ao aluno após enviar as respostas. O aluno não verá percentual de
-                acertos nem pontuação — apenas esta mensagem e a trilha configurada na aba Trilhas.
+                acertos nem pontuação — apenas esta mensagem. A trilha de recomposição é atribuída
+                automaticamente e exibida somente na área do professor.
               </p>
             </div>
 
             <Input
               label="Título da tela final"
+              size="sm"
               value={finalScreenTitle}
               onChange={(e) => setFinalScreenTitle(e.target.value)}
             />

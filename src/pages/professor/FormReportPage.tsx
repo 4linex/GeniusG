@@ -141,8 +141,9 @@ export function FormReportPage() {
           <VerticalBarChart
             title="Respostas por formulário"
             subtitle="Volume de respostas recebidas"
+            height={280}
             items={stats.map((s) => ({
-              label: s.title.length > 12 ? `${s.title.slice(0, 12)}…` : s.title,
+              label: s.title,
               value: s.totalResponses,
               color: CHART_COLORS.primary,
             }))}

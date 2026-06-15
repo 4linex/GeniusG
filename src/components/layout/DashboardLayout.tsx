@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext'
@@ -144,6 +145,11 @@ function DashboardLayoutInner() {
   const { collapsed, toggle, mobileOpen, setMobileOpen, closeMobile, widthClass } = useSidebar()
   const navigate = useNavigate()
   const location = useLocation()
+  const mainRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, left: 0 })
+  }, [location.pathname])
 
   const isFullBleedRoute =
     /^\/formularios\/(novo|[^/]+)$/.test(location.pathname) &&
@@ -158,7 +164,7 @@ function DashboardLayoutInner() {
 
   const sidebarContent = (
     <>
-      <div className={cn('border-b border-white/10', collapsed ? 'p-3' : 'p-5 lg:p-6')}>
+      <div className={cn('border-b border-white/10 shrink-0', collapsed ? 'p-3' : 'p-5 lg:p-6')}>
         <div className={cn('flex items-center', collapsed ? 'justify-center' : 'justify-between gap-2')}>
           <h1 className={cn('font-bold gradient-text', collapsed ? 'text-sm' : 'text-lg lg:text-xl')}>
             {collapsed ? 'G' : APP_NAME}
@@ -188,7 +194,7 @@ function DashboardLayoutInner() {
       </div>
 
       {collapsed && (
-        <div className="px-2 pt-2 hidden lg:block">
+        <div className="px-2 pt-2 hidden lg:block shrink-0">
           <button
             type="button"
             onClick={toggle}
@@ -200,7 +206,7 @@ function DashboardLayoutInner() {
         </div>
       )}
 
-      <ScrollArea className={cn('flex-1', collapsed ? 'p-2' : 'p-3 lg:p-4')}>
+      <ScrollArea className={cn('flex-1 min-h-0', collapsed ? 'p-2' : 'p-3 lg:p-4')}>
         <nav className="space-y-5">
           {visibleGroups.map((group, gi) => (
             <div key={group.label ?? `group-${gi}`}>
@@ -236,7 +242,7 @@ function DashboardLayoutInner() {
         </nav>
       </ScrollArea>
 
-      <div className={cn('border-t border-white/10', collapsed ? 'p-2' : 'p-3 lg:p-4')}>
+      <div className={cn('border-t border-white/10 shrink-0', collapsed ? 'p-2' : 'p-3 lg:p-4')}>
         {!collapsed && (
           <div className="mb-3 px-3">
             <p className="text-sm font-medium text-white truncate">{profile?.full_name}</p>
@@ -260,8 +266,8 @@ function DashboardLayoutInner() {
   )
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
-      <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10 glass">
+    <div className="h-dvh flex flex-col overflow-hidden">
+      <header className="lg:hidden shrink-0 z-30 flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10 glass">
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
@@ -274,35 +280,40 @@ function DashboardLayoutInner() {
         <div className="w-9" aria-hidden />
       </header>
 
-      {mobileOpen && (
-        <button
-          type="button"
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
-          aria-label="Fechar menu"
-          onClick={closeMobile}
-        />
-      )}
-
-      <aside
-        className={cn(
-          'glass border-r border-white/10 flex flex-col shrink-0 transition-[transform,width] duration-200 ease-out z-50',
-          'fixed inset-y-0 left-0 lg:static lg:translate-x-0',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full',
-          widthClass,
+      <div className="flex flex-1 min-h-0 overflow-hidden lg:flex-row">
+        {mobileOpen && (
+          <button
+            type="button"
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+            aria-label="Fechar menu"
+            onClick={closeMobile}
+          />
         )}
-      >
-        {sidebarContent}
-      </aside>
 
-      <main className="flex-1 min-w-0 overflow-y-auto scrollbar-app">
-        {isFullBleedRoute ? (
-          <Outlet />
-        ) : (
-          <PageShell>
+        <aside
+          className={cn(
+            'glass border-r border-white/10 flex flex-col shrink-0 min-h-0 h-full transition-[transform,width] duration-200 ease-out z-50',
+            'fixed inset-y-0 left-0 lg:relative lg:translate-x-0',
+            mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+            widthClass,
+          )}
+        >
+          {sidebarContent}
+        </aside>
+
+        <main
+          ref={mainRef}
+          className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain scrollbar-app"
+        >
+          {isFullBleedRoute ? (
             <Outlet />
-          </PageShell>
-        )}
-      </main>
+          ) : (
+            <PageShell>
+              <Outlet />
+            </PageShell>
+          )}
+        </main>
+      </div>
     </div>
   )
 }

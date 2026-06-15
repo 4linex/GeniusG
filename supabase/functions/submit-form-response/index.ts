@@ -8,7 +8,7 @@ import {
 } from '../_shared/scoring.ts'
 import { estimateItemParamsFromResponses } from '../_shared/itemCalibration.ts'
 import { clampScore, clampTheta, clampPointValue, sanitizeItemTriParams } from '../_shared/scoreBounds.ts'
-import { findFormTrailByPercent, resolveTrailContent } from '../_shared/formTrails.ts'
+import { findFormTrailByPercent } from '../_shared/formTrails.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -173,38 +173,25 @@ serve(async (req) => {
       await recalibrateQuestion(supabase, questionId)
     }
 
-    // Trilha do formulário por % de acerto — retornada ao aluno (sem expor a nota)
     const { data: formTrails } = await supabase
       .from('form_trails')
-      .select(`
-        id, min_percent, max_percent, title, description, pdf_url, link_url, content, difficulty,
-        learning_trail:learning_trails(title, description, pdf_url, link_url, content)
-      `)
+      .select('id, min_percent, max_percent')
       .eq('form_id', link.form_id)
       .order('min_percent')
 
     const acertoPercent = clampScore(assessment.percentualAcerto)
     const matchedTrail = findFormTrailByPercent(formTrails || [], acertoPercent)
 
-    let trailPayload: {
-      title: string
-      description?: string | null
-      pdf_url?: string | null
-      link_url?: string | null
-      content?: string | null
-    } | null = null
-
+    // Trilha registrada para o professor — não exposta ao aluno na resposta
     if (matchedTrail) {
       await supabase.from('student_trail_assignments').insert({
         response_id: response.id,
         form_trail_id: matchedTrail.id,
       })
-
-      trailPayload = resolveTrailContent(matchedTrail)
     }
 
     return new Response(
-      JSON.stringify({ trail: trailPayload }),
+      JSON.stringify({ ok: true }),
       { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (err) {

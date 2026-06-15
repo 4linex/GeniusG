@@ -13,12 +13,14 @@ export function useRefreshOnFocus(refetch: () => void, enabled = true) {
 
     const onFocus = () => refetchRef.current()
     window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', () => {
+    const onVisibility = () => {
       if (document.visibilityState === 'visible') onFocus()
-    })
+    }
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
       window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [enabled])
 }

@@ -22,7 +22,10 @@ import {
 } from '@/lib/formAssessmentReport'
 import { resolveScopedFormIds, canAccessForm } from '@/lib/scopedForms'
 import { formatDate, formatScore } from '@/lib/utils'
+import { Pagination, paginateSlice } from '@/components/ui/Pagination'
 import { NIVEL_PROFICIENCIA_LABELS } from '@/lib/scoring'
+
+const STUDENTS_PAGE_SIZE = 15
 
 export function FormReportDetailPage() {
   const { formId } = useParams()
@@ -38,6 +41,7 @@ export function FormReportDetailPage() {
   const [reportOpen, setReportOpen] = useState(false)
   const [reportData, setReportData] = useState<RecoveryReportData | null>(null)
   const [reportLoading, setReportLoading] = useState(false)
+  const [studentsPage, setStudentsPage] = useState(1)
 
   useEffect(() => {
     if (!formId || !user?.id || !profile?.role) return
@@ -92,6 +96,15 @@ export function FormReportDetailPage() {
       return true
     })
   }, [students, filters])
+
+  const paginatedStudents = useMemo(
+    () => paginateSlice(filteredStudents, studentsPage, STUDENTS_PAGE_SIZE),
+    [filteredStudents, studentsPage],
+  )
+
+  useEffect(() => {
+    setStudentsPage(1)
+  }, [filters])
 
   const filteredSummary = useMemo(() => {
     if (!summary) return null
@@ -313,7 +326,7 @@ export function FormReportDetailPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredStudents.map((s) => (
+                {paginatedStudents.map((s) => (
                   <tr
                     key={s.id}
                     className="border-b border-white/5 hover:bg-white/[0.04] cursor-pointer transition-colors"
@@ -348,6 +361,12 @@ export function FormReportDetailPage() {
                 ))}
               </tbody>
             </table>
+            <Pagination
+              page={studentsPage}
+              pageSize={STUDENTS_PAGE_SIZE}
+              total={filteredStudents.length}
+              onPageChange={setStudentsPage}
+            />
           </div>
         )}
       </Card>

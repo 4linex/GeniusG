@@ -25,6 +25,8 @@ interface ProficiencyLevelChartProps {
   byNivel: Record<NivelProficiencia, number>
   totalResponses: number
   className?: string
+  hideHeader?: boolean
+  emptyMessage?: string
 }
 
 function niceYMax(max: number): number {
@@ -58,6 +60,8 @@ export function ProficiencyLevelChart({
   byNivel,
   totalResponses,
   className,
+  hideHeader = false,
+  emptyMessage = 'Nenhuma resposta classificada por nível de proficiência.',
 }: ProficiencyLevelChartProps) {
   const maxCount = Math.max(...NIVEL_ORDER.map((n) => byNivel[n]), 0)
   const yMax = niceYMax(Math.max(maxCount, 1))
@@ -81,7 +85,7 @@ export function ProficiencyLevelChart({
   if (totalResponses === 0) {
     return (
       <p className={cn('text-sm text-slate-500 text-center py-8', className)}>
-        Nenhum aluno respondeu esta avaliação ainda.
+        {emptyMessage}
       </p>
     )
   }
@@ -97,12 +101,14 @@ export function ProficiencyLevelChart({
 
   return (
     <div className={cn('w-full', className)}>
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold text-white">Distribuição por nível</h3>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Respostas classificadas em inicial, intermediário e avançado
-        </p>
-      </div>
+      {!hideHeader && (
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold text-white">Distribuição por nível</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Respostas classificadas em inicial, intermediário e avançado
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
         {NIVEL_ORDER.map((nivel) => {
@@ -134,6 +140,15 @@ export function ProficiencyLevelChart({
         aria-label="Gráfico de respostas por nível de proficiência"
         preserveAspectRatio="xMidYMid meet"
       >
+        <defs>
+          {NIVEL_ORDER.map((nivel) => (
+            <linearGradient key={nivel} id={`barGrad-${nivel}`} x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stopColor={BAR_COLORS[nivel]} stopOpacity={0.85} />
+              <stop offset="100%" stopColor={BAR_COLORS[nivel]} stopOpacity={1} />
+            </linearGradient>
+          ))}
+        </defs>
+
         {ticks.map((tick) => {
           const y = yScale(tick)
           return (
@@ -249,15 +264,6 @@ export function ProficiencyLevelChart({
             </g>
           )
         })}
-
-        <defs>
-          {NIVEL_ORDER.map((nivel) => (
-            <linearGradient key={nivel} id={`barGrad-${nivel}`} x1="0" y1="1" x2="0" y2="0">
-              <stop offset="0%" stopColor={BAR_COLORS[nivel]} stopOpacity={0.85} />
-              <stop offset="100%" stopColor={BAR_COLORS[nivel]} stopOpacity={1} />
-            </linearGradient>
-          ))}
-        </defs>
 
         <line
           x1={pad.left}

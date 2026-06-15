@@ -402,6 +402,69 @@ export function RecoveryReportDocument({ data }: RecoveryReportDocumentProps) {
             </section>
           )}
 
+          {data.recommendedTrails && data.recommendedTrails.length > 0 && (
+            <section className="rounded-xl border border-gray-100 overflow-hidden">
+              <h2 className="text-sm font-bold text-gray-800 px-5 pt-5 pb-1">
+                Trilhas de recomposição recomendadas
+              </h2>
+              <p className="text-[11px] text-gray-500 px-5 pb-3">
+                Atribuídas automaticamente com base no percentual de acerto de cada avaliação.
+              </p>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-teal-50 text-teal-900">
+                    {data.kind === 'form' && (
+                      <th className="text-left py-2 px-5 font-semibold">Aluno</th>
+                    )}
+                    {data.kind === 'student' && (
+                      <th className="text-left py-2 px-5 font-semibold">Formulário</th>
+                    )}
+                    <th className="text-left py-2 px-3 font-semibold w-16">TCT</th>
+                    <th className="text-left py-2 px-3 font-semibold">Faixa</th>
+                    <th className="text-left py-2 px-5 font-semibold">Trilha recomendada</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.recommendedTrails.map((row, i) => (
+                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                      {data.kind === 'form' && (
+                        <td className="py-2.5 px-5">
+                          <p className="font-medium text-gray-800">{row.studentName}</p>
+                          {row.studentEmail && (
+                            <p className="text-[10px] text-gray-400">{row.studentEmail}</p>
+                          )}
+                        </td>
+                      )}
+                      {data.kind === 'student' && (
+                        <td className="py-2.5 px-5 font-medium text-gray-800">{row.formTitle}</td>
+                      )}
+                      <td className="py-2.5 px-3 font-semibold text-gray-700">
+                        {row.studentPercent != null ? `${row.studentPercent}%` : '—'}
+                      </td>
+                      <td className="py-2.5 px-3 text-gray-600">{row.percentRange || '—'}</td>
+                      <td className="py-2.5 px-5">
+                        <p className="font-medium text-teal-800">{row.trailTitle}</p>
+                        {row.pedagogicalObjectives && (
+                          <p className="text-[10px] text-gray-500 mt-1">{row.pedagogicalObjectives}</p>
+                        )}
+                        {row.teacherNotes && (
+                          <p className="text-[10px] text-gray-500 mt-1">{row.teacherNotes}</p>
+                        )}
+                        {(row.pedagogicalPdfUrl || row.pedagogicalLinkUrl) && (
+                          <p className="text-[10px] text-teal-700 mt-1">
+                            {row.pedagogicalPdfUrl && 'PDF pedagógico disponível'}
+                            {row.pedagogicalPdfUrl && row.pedagogicalLinkUrl && ' · '}
+                            {row.pedagogicalLinkUrl && 'Recursos online disponíveis'}
+                          </p>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
           {/* Priority skills */}
           <section className="grid grid-cols-2 gap-4">
             <div className="rounded-xl border border-red-100 bg-red-50/30 p-4">

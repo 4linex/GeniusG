@@ -1,6 +1,14 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
-import type { NivelProficiencia } from '@/types/database'
+import { formatPercentRange } from '@/lib/formTrails'
+import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
+import type { LearningTrail, NivelProficiencia } from '@/types/database'
+
+export interface ResponseRecommendedTrail {
+  title: string
+  percentRange: string | null
+  learningTrail: LearningTrail | null
+}
 
 export interface FormAssessmentSummary {
   formId: string
@@ -177,7 +185,15 @@ export async function loadStudentResponseDetail(formId: string, responseId: stri
       `
       id, form_id, student_name, student_email, percentual_acerto, theta, nivel_proficiencia,
       correct_answers, total_questions, completed_at,
-      form:forms(title)
+      form:forms(title),
+      trail_assignment:student_trail_assignments(
+        form_trail:form_trails(
+          min_percent,
+          max_percent,
+          title,
+          learning_trail:learning_trails(${PROFESSOR_TRAIL_COLUMNS})
+        )
+      )
     `,
     )
     .eq('id', responseId)
@@ -185,6 +201,27 @@ export async function loadStudentResponseDetail(formId: string, responseId: stri
     .single()
 
   if (error || !response) return null
+
+  const assignment = response.trail_assignment as {
+    form_trail?: {
+      min_percent: number
+      max_percent: number
+      title?: string | null
+      learning_trail?: LearningTrail | null
+    } | null
+  } | null
+
+  const formTrail = assignment?.form_trail
+  const recommendedTrail: ResponseRecommendedTrail | null = formTrail
+    ? {
+        title: formTrail.learning_trail?.title || formTrail.title || 'Trilha de recomposição',
+        percentRange:
+          formTrail.min_percent != null && formTrail.max_percent != null
+            ? formatPercentRange(formTrail.min_percent, formTrail.max_percent)
+            : null,
+        learningTrail: formTrail.learning_trail ?? null,
+      }
+    : null
 
   const { data: answers } = await supabase
     .from('response_answers')
@@ -246,6 +283,7 @@ export async function loadStudentResponseDetail(formId: string, responseId: stri
     wrongAnswers,
     correctCount,
     totalAnswered: (answers || []).length,
+    recommendedTrail,
   }
 }
 

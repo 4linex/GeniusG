@@ -162,7 +162,10 @@ export function DonutChart({
         />
         {active.map((seg) => {
           const pct = total > 0 ? seg.value / total : 0
-          const segLen = pct * circumference
+          let segLen = pct * circumference
+          if (active.length === 1 && segLen > 0) {
+            segLen = circumference - 0.5
+          }
           const dash = `${segLen} ${circumference - segLen}`
           const el = (
             <circle
@@ -221,23 +224,45 @@ interface VerticalBarChartProps {
   height?: number
 }
 
+function wrapSvgLabel(label: string, maxChars: number, maxLines: number): string[] {
+  const words = label.split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ['—']
+
+  const lines: string[] = []
+  let current = ''
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word
+    if (next.length <= maxChars) {
+      current = next
+      continue
+    }
+    if (current) lines.push(current)
+    current = word.length > maxChars ? `${word.slice(0, maxChars - 1)}…` : word
+    if (lines.length >= maxLines - 1) break
+  }
+
+  if (current && lines.length < maxLines) lines.push(current)
+  return lines.slice(0, maxLines)
+}
+
 export function VerticalBarChart({
   items,
   title,
   subtitle,
   className,
-  height = 200,
+  height = 260,
 }: VerticalBarChartProps) {
-  const active = items.filter((i) => i.value > 0)
-  const max = Math.max(...active.map((i) => i.value), 1)
-  const width = 400
-  const pad = { top: 20, right: 16, bottom: 40, left: 16 }
+  const max = Math.max(...items.map((i) => i.value), 1)
+  const width = Math.max(420, items.length * 88)
+  const pad = { top: 28, right: 20, bottom: 72, left: 20 }
   const chartW = width - pad.left - pad.right
   const chartH = height - pad.top - pad.bottom
-  const groupW = active.length > 0 ? chartW / active.length : chartW
-  const barW = Math.min(48, groupW * 0.55)
+  const groupW = items.length > 0 ? chartW / items.length : chartW
+  const barW = Math.min(40, Math.max(18, groupW * 0.42))
+  const charsPerLine = Math.max(10, Math.floor(groupW / 5.5))
 
-  if (active.length === 0) {
+  if (items.length === 0) {
     return (
       <div className={className}>
         {title && <h3 className="text-sm font-semibold text-white mb-1">{title}</h3>}
@@ -250,52 +275,69 @@ export function VerticalBarChart({
     <div className={className}>
       {title && <h3 className="text-sm font-semibold text-white mb-1">{title}</h3>}
       {subtitle && <p className="text-xs text-slate-400 mb-3">{subtitle}</p>}
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full h-auto"
-        style={{ minHeight: height }}
-        preserveAspectRatio="xMidYMid meet"
-      >
-        {active.map((item, i) => {
-          const barH = chartH * (item.value / max)
-          const cx = pad.left + groupW * i + groupW / 2
-          const baseY = pad.top + chartH
-          return (
-            <g key={item.label}>
-              <rect
-                x={cx - barW / 2}
-                y={baseY - barH}
-                width={barW}
-                height={barH}
-                fill={item.color ?? '#8b5cf6'}
-                rx={4}
-              />
-              {item.value > 0 && (
-                <text
-                  x={cx}
-                  y={baseY - barH - 6}
-                  textAnchor="middle"
-                  fill="#e2e8f0"
-                  fontSize={12}
-                  fontWeight={600}
-                >
-                  {item.value}
-                </text>
-              )}
-              <text x={cx} y={height - 10} textAnchor="middle" fill="#94a3b8" fontSize={11}>
-                {item.label}
-              </text>
-            </g>
-          )
-        })}
-        <line
-          x1={pad.left}
-          y1={pad.top + chartH}
-          x2={width - pad.right}
-          y2={pad.top + chartH}
-          stroke="rgba(255,255,255,0.12)"
-        />
-      </svg>
+      <div className="w-full overflow-x-auto scrollbar-app">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="w-full"
+          style={{ minHeight: height, maxHeight: height }}
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label={title}
+        >
+          {items.map((item, i) => {
+            const barH = max > 0 ? chartH * (item.value / max) : 0
+            const cx = pad.left + groupW * i + groupW / 2
+            const baseY = pad.top + chartH
+            const visibleBarH = item.value > 0 ? Math.max(barH, 6) : 3
+            const labelLines = wrapSvgLabel(item.label, charsPerLine, 3)
+
+            return (
+              <g key={`${item.label}-${i}`}>
+                <title>{`${item.label}: ${item.value}`}</title>
+                <rect
+                  x={cx - barW / 2}
+                  y={baseY - visibleBarH}
+                  width={barW}
+                  height={visibleBarH}
+                  fill={item.value > 0 ? (item.color ?? '#8b5cf6') : 'rgba(255,255,255,0.08)'}
+                  rx={4}
+                />
+                {item.value > 0 && (
+                  <text
+                    x={cx}
+                    y={baseY - visibleBarH - 8}
+                    textAnchor="middle"
+                    fill="#e2e8f0"
+                    fontSize={11}
+                    fontWeight={600}
+                  >
+                    {item.value}
+                  </text>
+                )}
+                {labelLines.map((line, lineIndex) => (
+                  <text
+                    key={lineIndex}
+                    x={cx}
+                    y={baseY + 14 + lineIndex * 13}
+                    textAnchor="middle"
+                    fill="#94a3b8"
+                    fontSize={10}
+                  >
+                    {line}
+                  </text>
+                ))}
+              </g>
+            )
+          })}
+          <line
+            x1={pad.left}
+            y1={pad.top + chartH}
+            x2={width - pad.right}
+            y2={pad.top + chartH}
+            stroke="rgba(255,255,255,0.12)"
+          />
+        </svg>
+      </div>
     </div>
   )
 }

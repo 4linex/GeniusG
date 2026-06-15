@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -8,6 +8,7 @@ import { Card, CardHeader } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { FormStatusSelect } from '@/components/forms/FormStatusSelect'
 import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal'
+import { Pagination, paginateSlice } from '@/components/ui/Pagination'
 import { formatDate, generateSlug } from '@/lib/utils'
 import {
   FORM_MODE_LABELS,
@@ -16,6 +17,8 @@ import {
   type FormStatus,
 } from '@/types/database'
 import { Copy, Link2, Plus, Pencil, Trash2, Eye } from 'lucide-react'
+
+const FORMS_PAGE_SIZE = 6
 
 interface FormWithLinks extends Form {
   links: (FormLink & { professor_name?: string })[]
@@ -28,11 +31,25 @@ export function FormsHubPage() {
   const [forms, setForms] = useState<FormWithLinks[]>([])
   const [loading, setLoading] = useState(true)
   const [deleteTarget, setDeleteTarget] = useState<Form | null>(null)
+  const [deleteLinkTarget, setDeleteLinkTarget] = useState<(FormLink & { professor_name?: string }) | null>(
+    null,
+  )
   const [deleting, setDeleting] = useState(false)
+  const [deletingLink, setDeletingLink] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
   const [creatingLinkFor, setCreatingLinkFor] = useState<string | null>(null)
   const [togglingLinkId, setTogglingLinkId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+
+  const paginatedForms = useMemo(
+    () => paginateSlice(forms, page, FORMS_PAGE_SIZE),
+    [forms, page],
+  )
+
+  useEffect(() => {
+    setPage(1)
+  }, [forms.length])
 
   const loadData = async () => {
     if (!user) return
@@ -153,6 +170,21 @@ export function FormsHubPage() {
     setDeleting(false)
   }
 
+  const handleConfirmDeleteLink = async () => {
+    if (!deleteLinkTarget) return
+    setDeletingLink(true)
+    const { error: deleteError } = await supabase
+      .from('form_links')
+      .delete()
+      .eq('id', deleteLinkTarget.id)
+    if (deleteError) setError(deleteError.message)
+    else {
+      setDeleteLinkTarget(null)
+      loadData()
+    }
+    setDeletingLink(false)
+  }
+
   return (
     <div>
       <CardHeader
@@ -188,7 +220,7 @@ export function FormsHubPage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {forms.map((form) => (
+          {paginatedForms.map((form) => (
             <Card key={form.id}>
               <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
                 <div>
@@ -271,6 +303,14 @@ export function FormsHubPage() {
                           <Copy size={14} />
                           {copied === link.slug ? 'Copiado!' : 'Copiar'}
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Excluir link"
+                          onClick={() => setDeleteLinkTarget(link)}
+                        >
+                          <Trash2 size={14} className="text-red-400" />
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -282,6 +322,12 @@ export function FormsHubPage() {
               )}
             </Card>
           ))}
+          <Pagination
+            page={page}
+            pageSize={FORMS_PAGE_SIZE}
+            total={forms.length}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
@@ -293,6 +339,16 @@ export function FormsHubPage() {
         loading={deleting}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDeleteModal
+        open={Boolean(deleteLinkTarget)}
+        title="Excluir link"
+        description="O link deixará de funcionar para os alunos. Respostas já enviadas por este link permanecem no sistema."
+        itemName={deleteLinkTarget ? `/f/${deleteLinkTarget.slug}` : undefined}
+        loading={deletingLink}
+        onConfirm={handleConfirmDeleteLink}
+        onCancel={() => setDeleteLinkTarget(null)}
       />
     </div>
   )

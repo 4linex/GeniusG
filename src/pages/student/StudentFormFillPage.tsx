@@ -4,10 +4,8 @@ import { Button } from '@/components/ui/Button'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { StudentQuestionDisplay } from '@/components/questions/StudentQuestionDisplay'
 import { cn } from '@/lib/utils'
-import { fetchStudentForm, submitStudentForm, type StudentAssignedTrail } from '@/lib/studentForm'
+import { fetchStudentForm, submitStudentForm } from '@/lib/studentForm'
 import { GamifiedEmojiBackground } from '@/components/student/GamifiedEmojiBackground'
-import { RocketTrailUnlock } from '@/components/student/RocketTrailUnlock'
-import { StudentTrailResult } from '@/components/trails/StudentTrailResult'
 import { Sparkles } from 'lucide-react'
 import type { StudentFormConfig } from '@/lib/studentForm'
 
@@ -35,7 +33,6 @@ export function StudentFormFillPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [finished, setFinished] = useState(false)
-  const [assignedTrail, setAssignedTrail] = useState<StudentAssignedTrail | null>(null)
   const [session, setSession] = useState<{ name: string; email: string } | null>(null)
   const [error, setError] = useState('')
   const [encouragement, setEncouragement] = useState('')
@@ -100,9 +97,8 @@ export function StudentFormFillPage() {
         letter: answers[q.id],
       }))
 
-      const result = await submitStudentForm(slug!, session.name, session.email, answerPayload)
+      await submitStudentForm(slug!, session.name, session.email, answerPayload)
 
-      setAssignedTrail(result.trail)
       setFinished(true)
       sessionStorage.removeItem(`form_session_${slug}`)
     } catch (err) {
@@ -151,17 +147,9 @@ export function StudentFormFillPage() {
             {config?.final_screen_message ||
               'Suas respostas foram registradas com sucesso.'}
           </p>
-          {assignedTrail ? (
-            isGamified ? (
-              <RocketTrailUnlock trail={assignedTrail} accent={accent} />
-            ) : (
-              <StudentTrailResult trail={assignedTrail} accent={accent} />
-            )
-          ) : (
-            <p className="text-sm text-slate-500 mt-4">
-              Seu professor receberá o diagnóstico completo e poderá orientar seus próximos passos.
-            </p>
-          )}
+          <p className="text-sm text-slate-500 mt-4">
+            Seu professor receberá o diagnóstico completo e poderá orientar seus próximos passos.
+          </p>
         </div>
       </div>
     )

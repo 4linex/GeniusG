@@ -35,6 +35,7 @@ function StatCard({
   label,
   value,
   sub,
+  subTone = 'neutral',
   icon: Icon,
   iconBg,
   iconColor,
@@ -43,20 +44,35 @@ function StatCard({
   label: string
   value: string | number
   sub?: string
+  subTone?: 'neutral' | 'success' | 'warning'
   icon: React.ComponentType<{ size?: number; className?: string }>
   iconBg: string
   iconColor: string
   to?: string
 }) {
+  const subToneClass =
+    subTone === 'success'
+      ? 'text-emerald-400'
+      : subTone === 'warning'
+        ? 'text-amber-400'
+        : 'text-slate-500'
+
   const card = (
-    <Card className={cn('!p-5', to && 'cursor-pointer hover:border-white/20 transition-colors')}>
-      <div className="flex items-start justify-between">
-        <div>
+    <Card
+      className={cn(
+        '!p-5 h-full flex flex-col',
+        to && 'cursor-pointer hover:border-white/20 transition-colors',
+      )}
+    >
+      <div className="flex items-start justify-between gap-3 flex-1">
+        <div className="min-w-0 flex flex-col flex-1">
           <p className="text-sm text-slate-400">{label}</p>
           <p className="text-3xl font-bold text-white mt-1">{value}</p>
-          {sub && <p className="text-xs text-emerald-400 mt-1">{sub}</p>}
+          <p className={cn('text-xs mt-1 min-h-[2rem] leading-snug', sub ? subToneClass : 'invisible')}>
+            {sub ?? 'placeholder'}
+          </p>
         </div>
-        <div className={`p-3 rounded-xl ${iconBg}`}>
+        <div className={cn('p-3 rounded-xl shrink-0', iconBg)}>
           <Icon size={22} className={iconColor} />
         </div>
       </div>
@@ -65,7 +81,7 @@ function StatCard({
 
   if (to) {
     return (
-      <Link to={to} className="block">
+      <Link to={to} className="block h-full">
         {card}
       </Link>
     )
@@ -232,7 +248,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8 items-stretch">
         <StatCard
           label="Avaliações Aplicadas"
           value={stats.avaliacoesAplicadas}
@@ -241,8 +257,9 @@ export function DashboardPage() {
               ? `${stats.formulariosComRespostas} com respostas`
               : stats.avaliacoesMesAtual > 0
                 ? `+${stats.avaliacoesMesAtual} este mês`
-                : undefined
+                : 'Nenhuma com respostas ainda'
           }
+          subTone={stats.formulariosComRespostas > 0 || stats.avaliacoesMesAtual > 0 ? 'success' : 'neutral'}
           icon={ClipboardList}
           iconBg="bg-primary-500/15"
           iconColor="text-primary-400"
@@ -256,8 +273,9 @@ export function DashboardPage() {
               ? `${stats.totalRespostas} respostas no total`
               : stats.alunosMesAtual > 0
                 ? `+${stats.alunosMesAtual} este mês`
-                : undefined
+                : 'Aguardando respostas'
           }
+          subTone={stats.totalRespostas > 0 || stats.alunosMesAtual > 0 ? 'success' : 'neutral'}
           icon={Users}
           iconBg="bg-emerald-500/15"
           iconColor="text-emerald-400"
@@ -266,7 +284,12 @@ export function DashboardPage() {
         <StatCard
           label="Habilidades Críticas"
           value={stats.habilidadesCriticas}
-          sub={stats.habilidadesCriticas > 0 ? 'Abaixo de 60% de acerto' : 'Nenhuma abaixo de 60%'}
+          sub={
+            stats.habilidadesCriticas > 0
+              ? 'Abaixo de 60% de acerto'
+              : 'Nenhuma abaixo de 60%'
+          }
+          subTone={stats.habilidadesCriticas > 0 ? 'warning' : 'neutral'}
           icon={AlertTriangle}
           iconBg="bg-amber-500/15"
           iconColor="text-amber-400"
@@ -278,8 +301,9 @@ export function DashboardPage() {
           sub={
             mediaDelta != null
               ? `${mediaDelta >= 0 ? '+' : ''}${mediaDelta}% vs mês anterior`
-              : undefined
+              : 'Sem histórico do mês anterior'
           }
+          subTone={mediaDelta != null && mediaDelta >= 0 ? 'success' : 'neutral'}
           icon={TrendingUp}
           iconBg="bg-violet-500/15"
           iconColor="text-violet-400"
@@ -298,6 +322,7 @@ export function DashboardPage() {
                 centerSubLabel="respostas"
                 layout="vertical"
                 size={148}
+                showEmptyInLegend
               />
             </Card>
             <Card className="p-5 flex flex-col min-h-[320px]">
@@ -387,6 +412,8 @@ export function DashboardPage() {
             <ProficiencyLevelChart
               byNivel={charts.byNivel}
               totalResponses={stats.totalRespostas}
+              hideHeader
+              emptyMessage="Nenhuma resposta classificada por nível de proficiência."
             />
           </Card>
         </>

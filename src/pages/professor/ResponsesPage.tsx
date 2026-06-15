@@ -2,7 +2,6 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Award,
-  ChevronLeft,
   ChevronRight,
   ClipboardList,
   FilterX,
@@ -15,6 +14,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
+import { Pagination, paginateSlice } from '@/components/ui/Pagination'
 import { formatDate, formatScore } from '@/lib/utils'
 import { PERFORMANCE_STATUS_LABELS,
   getInitials,
@@ -218,7 +218,10 @@ export function ResponsesPage() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const pageStudents = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const pageStudents = useMemo(
+    () => paginateSlice(filtered, currentPage, PAGE_SIZE),
+    [filtered, currentPage],
+  )
 
   const clearFilters = () => {
     setSearch('')
@@ -252,21 +255,23 @@ export function ResponsesPage() {
     <div className="space-y-6">
       {/* Filtros */}
       <Card className="p-4 sm:p-5 overflow-visible">
-        <div className="grid gap-4 lg:grid-cols-[1fr_auto_auto_auto_auto_auto] lg:items-end">
-          <div className="relative lg:col-span-1">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="relative sm:col-span-2 xl:col-span-2">
             <Search
               size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"
+              className="absolute left-3 top-[2.125rem] text-slate-500 pointer-events-none z-10"
             />
-            <input
+            <Input
+              label="Buscar"
+              size="sm"
               type="search"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value)
                 setPage(1)
               }}
-              placeholder="Buscar por nome, e-mail ou turma..."
-              className="w-full rounded-xl border border-white/10 bg-white/5 pl-10 pr-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+              placeholder="Nome, e-mail ou turma..."
+              className="pl-9"
             />
           </div>
           <Select
@@ -316,23 +321,23 @@ export function ResponsesPage() {
           />
           <Input
             label="Período (de)"
+            size="sm"
             type="date"
             value={dateFrom}
             onChange={(e) => {
               setDateFrom(e.target.value)
               setPage(1)
             }}
-            className="min-w-[150px]"
           />
           <Input
             label="Período (até)"
+            size="sm"
             type="date"
             value={dateTo}
             onChange={(e) => {
               setDateTo(e.target.value)
               setPage(1)
             }}
-            className="min-w-[150px]"
           />
         </div>
         {hasFilters && (
@@ -412,12 +417,6 @@ export function ResponsesPage() {
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
             Alunos ({filtered.length})
           </h2>
-          {filtered.length > PAGE_SIZE && (
-            <p className="text-xs text-slate-500">
-              Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–
-              {Math.min(currentPage * PAGE_SIZE, filtered.length)} de {filtered.length}
-            </p>
-          )}
         </div>
 
         {filtered.length === 0 ? (
@@ -435,29 +434,12 @@ export function ResponsesPage() {
         )}
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-3 mt-6">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={currentPage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              <ChevronLeft size={16} />
-              Anterior
-            </Button>
-            <span className="text-sm text-slate-400">
-              Página {currentPage} de {totalPages}
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={currentPage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              Próxima
-              <ChevronRight size={16} />
-            </Button>
-          </div>
+          <Pagination
+            page={currentPage}
+            pageSize={PAGE_SIZE}
+            total={filtered.length}
+            onPageChange={setPage}
+          />
         )}
       </div>
     </div>

@@ -1,10 +1,13 @@
 import { loadFormAssessmentDetail, loadTriByFormChart, type SkillBreakdownRow } from '@/lib/formAssessmentReport'
 import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
+import { formatPercentRange } from '@/lib/formTrails'
 import { resolveScopedFormIds } from '@/lib/scopedForms'
+import { stripHtml } from '@/lib/richText'
+import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
 import { NIVEL_PROFICIENCIA_LABELS } from '@/lib/scoring'
 import { supabase } from '@/lib/supabase'
-import type { NivelProficiencia, Profile } from '@/types/database'
+import type { LearningTrail, NivelProficiencia, Profile } from '@/types/database'
 
 export type RecoveryReportKind = 'student' | 'form' | 'skills' | 'dashboard'
 
@@ -31,6 +34,20 @@ export interface TriSummaryRow {
   totalResponses: number
 }
 
+export interface RecoveryReportTrailRow {
+  studentName?: string
+  studentEmail?: string
+  formTitle?: string
+  percentRange: string | null
+  studentPercent: number | null
+  trailTitle: string
+  pedagogicalObjectives?: string | null
+  teacherNotes?: string | null
+  pedagogicalSummary?: string | null
+  pedagogicalPdfUrl?: string | null
+  pedagogicalLinkUrl?: string | null
+}
+
 export interface RecoveryReportData {
   kind: RecoveryReportKind
   reportTitle: string
@@ -53,6 +70,7 @@ export interface RecoveryReportData {
   bloomRows?: AreaPerformanceRow[]
   summaryMetrics?: { label: string; value: string }[]
   criticalSkillRows?: AreaPerformanceRow[]
+  recommendedTrails?: RecoveryReportTrailRow[]
 }
 
 export const PERFORMANCE_LEVEL_LABELS: Record<PerformanceLevel, string> = {
@@ -192,6 +210,73 @@ async function aggregateSkillsFromResponseIds(responseIds: string[]) {
   return { bncc: toRows(byHabilidade), bloom: toRows(byBloom) }
 }
 
+async function fetchRecommendedTrailsByResponseIds(
+  responseIds: string[],
+): Promise<RecoveryReportTrailRow[]> {
+  if (responseIds.length === 0) return []
+
+  const { data } = await supabase
+    .from('form_responses')
+    .select(
+      `
+      id,
+      student_name,
+      student_email,
+      percentual_acerto,
+      form:forms(title),
+      trail_assignment:student_trail_assignments(
+        form_trail:form_trails(
+          min_percent,
+          max_percent,
+          title,
+          learning_trail:learning_trails(${PROFESSOR_TRAIL_COLUMNS})
+        )
+      )
+    `,
+    )
+    .in('id', responseIds)
+
+  const rows: RecoveryReportTrailRow[] = []
+
+  for (const response of data || []) {
+    const assignment = response.trail_assignment as {
+      form_trail?: {
+        min_percent: number
+        max_percent: number
+        title?: string | null
+        learning_trail?: LearningTrail | null
+      } | null
+    } | null
+
+    const formTrail = assignment?.form_trail
+    if (!formTrail) continue
+
+    const trail = formTrail.learning_trail
+    const pedagogicalSummary = trail?.pedagogical_content
+      ? stripHtml(trail.pedagogical_content).slice(0, 280)
+      : null
+
+    rows.push({
+      studentName: response.student_name,
+      studentEmail: response.student_email,
+      formTitle: (response.form as { title?: string } | null)?.title,
+      percentRange:
+        formTrail.min_percent != null && formTrail.max_percent != null
+          ? formatPercentRange(formTrail.min_percent, formTrail.max_percent)
+          : null,
+      studentPercent: response.percentual_acerto ?? null,
+      trailTitle: trail?.title || formTrail.title || 'Trilha de recomposição',
+      pedagogicalObjectives: trail?.pedagogical_objectives ?? null,
+      teacherNotes: trail?.teacher_notes ?? null,
+      pedagogicalSummary: pedagogicalSummary || null,
+      pedagogicalPdfUrl: trail?.pedagogical_pdf_url ?? null,
+      pedagogicalLinkUrl: trail?.pedagogical_link_url ?? null,
+    })
+  }
+
+  return rows.sort((a, b) => (a.studentName || '').localeCompare(b.studentName || '', 'pt-BR'))
+}
+
 interface StudentResponseRow {
   id: string
   student_name: string
@@ -216,7 +301,10 @@ export async function buildStudentRecoveryReport(
   const averageTheta = avgTheta(studentResponses.map((r) => r.theta ?? null))
 
   const responseIds = studentResponses.map((r) => r.id)
-  const { bncc, bloom } = await aggregateSkillsFromResponseIds(responseIds)
+  const [{ bncc, bloom }, recommendedTrails] = await Promise.all([
+    aggregateSkillsFromResponseIds(responseIds),
+    fetchRecommendedTrailsByResponseIds(responseIds),
+  ])
 
   const areaRows: AreaPerformanceRow[] = studentResponses.map((r) => ({
     label: r.form?.title || 'Formulário',
@@ -247,6 +335,12 @@ export async function buildStudentRecoveryReport(
     highlights.push('Continue acompanhando a evolução nas próximas avaliações.')
   }
 
+  if (recommendedTrails.length > 0) {
+    highlights.push(
+      `${recommendedTrails.length} trilha(s) de recomposição atribuída(s) com base no desempenho.`,
+    )
+  }
+
   const dates = studentResponses.map((r) => r.completed_at).sort()
   const periodo =
     dates.length > 0
@@ -271,6 +365,7 @@ export async function buildStudentRecoveryReport(
     weakSkills: weakSkills.slice(0, 6),
     recommendations: buildRecommendations(weakSkills, 'student'),
     bloomRows: skillsToAreaRows(bloom.slice(0, 8), 'Bloom'),
+    recommendedTrails,
   }
 }
 
@@ -280,6 +375,7 @@ export async function buildFormRecoveryReport(formId: string): Promise<RecoveryR
 
   const { summary, students, bnccSkills, bloomSkills } = data
   const weakSkills = bnccSkills.filter((s) => s.percentage < 60).map((s) => s.label)
+  const recommendedTrails = await fetchRecommendedTrailsByResponseIds(students.map((s) => s.id))
 
   const highlights: string[] = [
     `${summary.totalResponses} resposta(s) registradas neste formulário.`,
@@ -295,6 +391,12 @@ export async function buildFormRecoveryReport(formId: string): Promise<RecoveryR
 
   if (nivelParts.length > 0) {
     highlights.push(`Distribuição por nível — ${nivelParts.join('; ')}.`)
+  }
+
+  if (recommendedTrails.length > 0) {
+    highlights.push(
+      `${recommendedTrails.length} aluno(s) com trilha de recomposição atribuída automaticamente.`,
+    )
   }
 
   return {
@@ -316,6 +418,7 @@ export async function buildFormRecoveryReport(formId: string): Promise<RecoveryR
     weakSkills: weakSkills.slice(0, 6),
     recommendations: buildRecommendations(weakSkills, 'form'),
     bloomRows: skillsToAreaRows(bloomSkills.slice(0, 8), 'Bloom'),
+    recommendedTrails,
   }
 }
 

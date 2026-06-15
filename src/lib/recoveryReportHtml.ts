@@ -229,6 +229,59 @@ export function buildRecoveryReportHtml(data: RecoveryReportData): string {
     )
     .join('')
 
+  const trailsHtml =
+    data.recommendedTrails && data.recommendedTrails.length > 0
+      ? `
+    <section style="border:1px solid #f3f4f6;border-radius:12px;overflow:hidden;margin-bottom:24px">
+      <h2 style="font-size:13px;font-weight:700;color:#1f2937;padding:20px 20px 4px;margin:0">Trilhas de recomposição recomendadas</h2>
+      <p style="font-size:11px;color:#6b7280;padding:0 20px 12px;margin:0">Atribuídas automaticamente com base no percentual de acerto de cada avaliação.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead>
+          <tr style="background:#f0fdfa;color:#115e59">
+            ${data.kind === 'form' ? '<th style="text-align:left;padding:8px 20px;font-weight:600">Aluno</th>' : ''}
+            ${data.kind === 'student' ? '<th style="text-align:left;padding:8px 20px;font-weight:600">Formulário</th>' : ''}
+            <th style="text-align:left;padding:8px 12px;font-weight:600">TCT</th>
+            <th style="text-align:left;padding:8px 12px;font-weight:600">Faixa</th>
+            <th style="text-align:left;padding:8px 20px;font-weight:600">Trilha recomendada</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.recommendedTrails
+            .map((row, i) => {
+              const firstCol =
+                data.kind === 'form'
+                  ? `<td style="padding:10px 20px"><div style="font-weight:500;color:#1f2937">${esc(row.studentName || '—')}</div>${row.studentEmail ? `<div style="font-size:10px;color:#9ca3af">${esc(row.studentEmail)}</div>` : ''}</td>`
+                  : data.kind === 'student'
+                    ? `<td style="padding:10px 20px;font-weight:500;color:#1f2937">${esc(row.formTitle || '—')}</td>`
+                    : ''
+              const notes = [
+                row.pedagogicalObjectives ? esc(row.pedagogicalObjectives) : '',
+                row.teacherNotes ? esc(row.teacherNotes) : '',
+              ]
+                .filter(Boolean)
+                .join('<br/>')
+              const resources =
+                row.pedagogicalPdfUrl || row.pedagogicalLinkUrl
+                  ? `<div style="font-size:10px;color:#0f766e;margin-top:4px">${row.pedagogicalPdfUrl ? 'PDF pedagógico' : ''}${row.pedagogicalPdfUrl && row.pedagogicalLinkUrl ? ' · ' : ''}${row.pedagogicalLinkUrl ? 'Recursos online' : ''}</div>`
+                  : ''
+              return `
+            <tr style="background:${i % 2 === 0 ? '#ffffff' : '#f9fafb'}">
+              ${firstCol}
+              <td style="padding:10px 12px;font-weight:600">${row.studentPercent != null ? `${row.studentPercent}%` : '—'}</td>
+              <td style="padding:10px 12px;color:#4b5563">${esc(row.percentRange || '—')}</td>
+              <td style="padding:10px 20px">
+                <div style="font-weight:500;color:#115e59">${esc(row.trailTitle)}</div>
+                ${notes ? `<div style="font-size:10px;color:#6b7280;margin-top:4px">${notes}</div>` : ''}
+                ${resources}
+              </td>
+            </tr>`
+            })
+            .join('')}
+        </tbody>
+      </table>
+    </section>`
+      : ''
+
   return `<div id="recovery-report-document" style="width:794px;min-height:1123px;background:#ffffff;color:#1f2937;font-family:system-ui,-apple-system,'Segoe UI',sans-serif">
     <div style="background:linear-gradient(to right,#7e22ce,#9333ea,#4f46e5);padding:24px 32px;color:#ffffff">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
@@ -281,6 +334,7 @@ export function buildRecoveryReportHtml(data: RecoveryReportData): string {
         ${data.criticalSkillRows && data.criticalSkillRows.length > 0 ? areaTable('Habilidades com maior déficit (BNCC / SAEB)', data.criticalSkillRows, '#fffbeb', '#92400e') : ''}
         ${data.bloomRows && data.bloomRows.length > 0 ? areaTable('Desempenho por Nível Bloom', data.bloomRows, '#eef2ff', '#3730a3') : ''}
         ${triHtml}
+        ${trailsHtml}
 
         <section style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
           <div style="border:1px solid #fee2e2;background:#fef2f2;border-radius:12px;padding:16px">
