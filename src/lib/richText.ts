@@ -1,3 +1,10 @@
+import {
+  IMAGE_BLOCK_CLASS,
+  applyImageAlign,
+  ensureImageBlock,
+  getImageAlign,
+} from '@/lib/richTextImageResize'
+
 export function looksLikeHtml(text: string): boolean {
   return /<[a-z][\s\S]*>/i.test(text)
 }
@@ -34,7 +41,7 @@ function isDarkTextColor(color: string): boolean {
 }
 
 /** Limpa HTML gerado pelo contentEditable para exibição consistente. */
-export function normalizeRichTextHtml(html: string): string {
+export function normalizeRichTextHtml(html: string, options?: { stripAllColors?: boolean }): string {
   if (!html.trim()) return ''
   if (typeof document === 'undefined') return html
 
@@ -60,8 +67,20 @@ export function normalizeRichTextHtml(html: string): string {
     font.replaceWith(span)
   })
 
+  root.querySelectorAll('img').forEach((node) => {
+    const img = node as HTMLImageElement
+    img.classList.add('rich-text-image')
+    img.removeAttribute('width')
+    img.removeAttribute('height')
+    if (!img.getAttribute('alt')) img.setAttribute('alt', '')
+    ensureImageBlock(img)
+    applyImageAlign(img, getImageAlign(img))
+  })
+
   root.querySelectorAll('*').forEach((node) => {
     const el = node as HTMLElement
+    if (el.tagName === 'IMG') return
+    if (el.classList.contains(IMAGE_BLOCK_CLASS)) return
     el.removeAttribute('color')
     el.style.removeProperty('margin')
     el.style.removeProperty('padding')
@@ -69,7 +88,9 @@ export function normalizeRichTextHtml(html: string): string {
     el.style.removeProperty('width')
     el.style.removeProperty('float')
 
-    if (el.style.color && isDarkTextColor(el.style.color)) {
+    if (options?.stripAllColors) {
+      el.style.removeProperty('color')
+    } else if (el.style.color && isDarkTextColor(el.style.color)) {
       el.style.removeProperty('color')
     }
   })
@@ -92,6 +113,19 @@ export function normalizeRichTextHtml(html: string): string {
       continue
     }
 
+    if (el.tagName === 'IMG') {
+      const img = el as HTMLImageElement
+      ensureImageBlock(img)
+      applyImageAlign(img, getImageAlign(img))
+      continue
+    }
+
+    if (el.classList.contains(IMAGE_BLOCK_CLASS)) {
+      const img = el.querySelector('img')
+      if (img) applyImageAlign(img, getImageAlign(img))
+      continue
+    }
+
     if (el.tagName !== 'DIV' && el.tagName !== 'P') {
       const div = document.createElement('div')
       div.style.textAlign = 'left'
@@ -110,6 +144,7 @@ export function normalizeRichTextHtml(html: string): string {
 
   root.querySelectorAll('div, p').forEach((block) => {
     const el = block as HTMLElement
+    if (el.classList.contains(IMAGE_BLOCK_CLASS)) return
     if (!el.style.textAlign) el.style.textAlign = 'left'
     if (!el.textContent?.replace(/\u200B/g, '').trim() && el.innerHTML === '<br>') {
       el.innerHTML = ''
@@ -120,5 +155,11 @@ export function normalizeRichTextHtml(html: string): string {
 }
 
 export function isRichTextEmpty(html: string): boolean {
+  if (!html.trim()) return true
+  if (typeof document !== 'undefined') {
+    const div = document.createElement('div')
+    div.innerHTML = html
+    if (div.querySelector('img')) return false
+  }
   return !stripHtml(html)
 }

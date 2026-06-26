@@ -1,6 +1,6 @@
 /**
  * Garante que variáveis VITE_* do Cloudflare Pages cheguem ao Vite no build.
- * O Vite só embute env no bundle durante `vite build` — o .env local não vai pro Git.
+ * Não lê .env do repositório — configure no painel do Cloudflare (Preview + Production).
  */
 import { writeFileSync } from 'node:fs'
 
@@ -10,18 +10,24 @@ const onCloudflare = Boolean(process.env.CF_PAGES)
 
 if (onCloudflare) {
   if (!url || !key) {
+    const branch = process.env.CF_PAGES_BRANCH || '(desconhecida)'
     console.error(
-      '\n[build] ERRO: VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY não estão disponíveis no build.\n' +
-        'Cloudflare Pages → Settings → Variables and secrets → Production.\n' +
-        'Se existir wrangler.toml no repo, remova-o — ele faz o Cloudflare ignorar variáveis do painel.\n' +
-        'Depois: Deployments → Retry deployment.\n',
+      '\n[build] ERRO: VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY não estão no ambiente de build.\n' +
+        `Branch: ${branch}\n\n` +
+        'Cloudflare Pages → Settings → Environment variables:\n' +
+        '  • Preview  — obrigatório para develop e outras branches\n' +
+        '  • Production — obrigatório para main/master\n\n' +
+        'Adicione em AMBOS os ambientes:\n' +
+        '  VITE_SUPABASE_URL=https://SEU_PROJETO.supabase.co\n' +
+        '  VITE_SUPABASE_ANON_KEY=sua_chave_anon\n\n' +
+        'Não commite .env com chaves no Git. Depois: Deployments → Retry deployment.\n',
     )
     process.exit(1)
   }
   console.log(`[build] Supabase URL: ${url}`)
 } else if (!url || !key) {
   console.warn(
-    '[build] VITE_SUPABASE_* não definidas — use .env local ou variáveis do Cloudflare no deploy.',
+    '[build] VITE_SUPABASE_* não definidas — use .env local (gitignored) ou variáveis no Cloudflare.',
   )
 }
 

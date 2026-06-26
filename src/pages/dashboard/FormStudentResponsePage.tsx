@@ -108,11 +108,29 @@ export function FormStudentResponsePage() {
         Voltar para {formTitle}
       </Link>
 
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">{studentName}</h1>
-        <p className="text-slate-400 mt-1">{studentEmail}</p>
+      {recommendedTrail ? (
+        <RecommendedTrailSection
+          title={recommendedTrail.title}
+          percentRange={recommendedTrail.percentRange}
+          trail={recommendedTrail.learningTrail}
+          studentPercent={percentual}
+        />
+      ) : (
+        <Card className="mb-8">
+          <p className="text-sm text-slate-500 text-center py-4">
+            Nenhuma trilha de recomposição foi atribuída para esta faixa de desempenho.
+          </p>
+        </Card>
+      )}
+
+      <div className="mb-8 rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          Dados da avaliação
+        </p>
+        <h1 className="mt-1 text-lg font-semibold text-white">{studentName}</h1>
+        <p className="text-sm text-slate-400">{studentEmail}</p>
         <p className="text-xs text-slate-500 mt-1">{formatDate(completedAt)}</p>
-        <div className="flex flex-wrap gap-2 mt-4">
+        <div className="flex flex-wrap gap-2 mt-3">
           {correctAnswers != null && totalQuestions != null && (
             <Badge variant="default">
               {correctAnswers}/{totalQuestions} acertos
@@ -128,21 +146,6 @@ export function FormStudentResponsePage() {
           )}
         </div>
       </div>
-
-      {recommendedTrail ? (
-        <RecommendedTrailSection
-          title={recommendedTrail.title}
-          percentRange={recommendedTrail.percentRange}
-          trail={recommendedTrail.learningTrail}
-          studentPercent={percentual}
-        />
-      ) : (
-        <Card className="mb-8">
-          <p className="text-sm text-slate-500 text-center py-4">
-            Nenhuma trilha de recomposição foi atribuída para esta faixa de desempenho.
-          </p>
-        </Card>
-      )}
 
       <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
         <XCircle size={20} className="text-red-400" />
@@ -182,14 +185,23 @@ export function FormStudentResponsePage() {
                       {stripHtml(w.enunciado)}
                     </p>
                   )}
-                  <div className="mt-3 space-y-1 text-sm">
-                    <p className="text-red-400">
-                      Marcada: {w.selectedLetter ? `${w.selectedLetter}) ` : ''}
-                      {w.selectedText || 'Sem resposta'}
-                    </p>
+                  <div className="mt-3">
+                    <div className="rounded-xl border-2 border-primary-500/50 bg-primary-500/15 p-3 ring-1 ring-primary-500/30">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary-300">
+                        Resposta marcada
+                      </p>
+                      <p className="mt-1.5 text-sm text-white">
+                        {w.selectedLetter ? (
+                          <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-md bg-primary-500 text-xs font-bold text-white">
+                            {w.selectedLetter}
+                          </span>
+                        ) : null}
+                        {w.selectedText || 'Sem resposta'}
+                      </p>
+                    </div>
                     {w.correctLetter && (
-                      <p className="text-emerald-400">
-                        Correta: {w.correctLetter}
+                      <p className="mt-2 text-xs text-slate-500">
+                        Gabarito: {w.correctLetter}
                         {w.correctText ? `) ${w.correctText}` : ''}
                       </p>
                     )}

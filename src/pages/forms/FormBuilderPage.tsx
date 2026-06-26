@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { ArrowLeft, Eye, Pencil, Save } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSidebar } from '@/contexts/SidebarContext'
@@ -10,6 +10,8 @@ import { Select } from '@/components/ui/Select'
 import {
   FORM_STATUS_LABELS,
   TURMA_OPTIONS,
+  AREA_OPTIONS,
+  COMPONENTE_MVP,
   type FormMode,
   type FormStatus,
   type Question,
@@ -29,6 +31,9 @@ import type { QuestionType } from '@/types/questionTypes'
 import { FormPreviewModal } from '@/components/forms/FormPreviewModal'
 import { FormModeToggle } from '@/components/forms/FormModeToggle'
 import { FormTrailsPanel } from '@/components/forms/builder/FormTrailsPanel'
+import { SchoolPicker, type SchoolSelection } from '@/components/schools/SchoolPicker'
+import { findSchoolByName, findSchoolByProfileFields, formatSchoolMunicipio } from '@/lib/schools'
+import { useSchools } from '@/hooks/useSchools'
 import { validateFormTrails } from '@/lib/formTrails'
 import type { FormTrailConfig } from '@/types/database'
 import { cn } from '@/lib/utils'
@@ -59,19 +64,26 @@ const TABS: { id: BuilderTab; label: string }[] = [
 export function FormBuilderPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, profile } = useAuth()
   const { collapsed } = useSidebar()
   const isEditing = Boolean(id)
+  const presetComponente = (location.state as { fixedComponente?: string } | null)?.fixedComponente
+  const resolvedReturnPath = (location.state as { returnPath?: string } | null)?.returnPath
+
+  const { schools, loading: schoolsLoading } = useSchools()
 
   const [activeTab, setActiveTab] = useState<BuilderTab>('editor')
   const [title, setTitle] = useState('Meu Novo Formulário')
   const [description, setDescription] = useState('')
-  const [schoolName, setSchoolName] = useState('')
+  const [schoolSelection, setSchoolSelection] = useState<SchoolSelection | null>(null)
+  const [pendingSchoolName, setPendingSchoolName] = useState<string | null>(null)
   const [isActive, setIsActive] = useState(true)
   const [status, setStatus] = useState<FormStatus>('em_andamento')
   const [expectedStudents, setExpectedStudents] = useState('')
   const [formMode, setFormMode] = useState<FormMode>('padrao')
   const [turma, setTurma] = useState('5º Ano')
+  const [componenteCurricular, setComponenteCurricular] = useState(COMPONENTE_MVP)
   const [designAccent, setDesignAccent] = useState('#14b8a6')
   const [finalScreenTitle, setFinalScreenTitle] = useState('Obrigado!')
   const [finalScreenMessage, setFinalScreenMessage] = useState(
@@ -87,6 +99,41 @@ export function FormBuilderPage() {
   const [trails, setTrails] = useState<FormTrailConfig[]>([])
 
   useEffect(() => {
+    if (presetComponente && !isEditing) {
+      setComponenteCurricular(presetComponente)
+    }
+  }, [presetComponente, isEditing])
+
+  useEffect(() => {
+    if (isEditing || schools.length === 0) return
+    const fromProfile = findSchoolByProfileFields(
+      schools,
+      profile?.municipio,
+      profile?.school_name,
+    )
+    if (fromProfile) {
+      setSchoolSelection({
+        schoolId: fromProfile.id,
+        municipio: formatSchoolMunicipio(fromProfile),
+        schoolName: fromProfile.name,
+      })
+    }
+  }, [isEditing, schools, profile?.municipio, profile?.school_name])
+
+  useEffect(() => {
+    if (!pendingSchoolName || schools.length === 0) return
+    const match = findSchoolByName(schools, pendingSchoolName)
+    if (match) {
+      setSchoolSelection({
+        schoolId: match.id,
+        municipio: formatSchoolMunicipio(match),
+        schoolName: match.name,
+      })
+      setPendingSchoolName(null)
+    }
+  }, [pendingSchoolName, schools])
+
+  useEffect(() => {
     if (!id) {
       loadBankQuestions().then(setBankQuestions)
       setInitialLoading(false)
@@ -98,12 +145,22 @@ export function FormBuilderPage() {
       const { form, questions: qs, trails: loadedTrails } = data
       setTitle(form.title)
       setDescription(form.description || '')
-      setSchoolName(form.school_name || '')
+      const match = findSchoolByName(schools, form.school_name)
+      if (match) {
+        setSchoolSelection({
+          schoolId: match.id,
+          municipio: formatSchoolMunicipio(match),
+          schoolName: match.name,
+        })
+      } else if (form.school_name) {
+        setPendingSchoolName(form.school_name)
+      }
       setIsActive(form.is_active)
       setStatus(form.status || 'em_andamento')
       setExpectedStudents(form.expected_students?.toString() || '')
       setFormMode(form.form_mode || 'padrao')
       setTurma(form.turma || '5º Ano')
+      setComponenteCurricular(form.componente_curricular || COMPONENTE_MVP)
       setDesignAccent(form.design_accent || '#14b8a6')
       setFinalScreenTitle(form.final_screen_title || 'Obrigado!')
       setFinalScreenMessage(
@@ -114,7 +171,7 @@ export function FormBuilderPage() {
       setTrails(loadedTrails)
       setInitialLoading(false)
     })
-  }, [id])
+  }, [id, schools])
 
   const selectedQuestion = questions.find((q) => q.localId === selectedId) || null
 
@@ -193,7 +250,8 @@ export function FormBuilderPage() {
         {
           title,
           description,
-          schoolName,
+          schoolName: schoolSelection?.schoolName || '',
+          componenteCurricular,
           isActive,
           status,
           expectedStudents,
@@ -208,7 +266,7 @@ export function FormBuilderPage() {
         user!.id,
         id,
       )
-      navigate('/formularios')
+      navigate(resolvedReturnPath ?? '/formularios')
     } catch (err) {
       setError(getErrorMessage(err, 'Erro ao salvar'))
     } finally {
@@ -230,7 +288,7 @@ export function FormBuilderPage() {
         <div className="flex items-center gap-2 min-w-0 md:max-w-[16rem]">
           <button
             type="button"
-            onClick={() => navigate('/formularios')}
+            onClick={() => navigate(resolvedReturnPath ?? '/formularios')}
             className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 shrink-0"
           >
             <ArrowLeft size={18} />
@@ -360,12 +418,11 @@ export function FormBuilderPage() {
             </p>
           </div>
 
-          <Input
-            label="Nome da escola"
-            size="sm"
-            value={schoolName}
-            onChange={(e) => setSchoolName(e.target.value)}
-            placeholder="Ex.: E.M. Professor João Silva"
+          <SchoolPicker
+            schools={schools}
+            loading={schoolsLoading}
+            value={schoolSelection}
+            onChange={setSchoolSelection}
           />
 
           <Select
@@ -374,6 +431,15 @@ export function FormBuilderPage() {
             value={turma}
             onChange={(e) => setTurma(e.target.value)}
             options={TURMA_OPTIONS}
+          />
+
+          <Select
+            label="Área do conhecimento"
+            size="sm"
+            value={componenteCurricular}
+            onChange={(e) => setComponenteCurricular(e.target.value)}
+            options={AREA_OPTIONS}
+            disabled={Boolean(presetComponente)}
           />
 
           <Select

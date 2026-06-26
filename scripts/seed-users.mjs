@@ -13,6 +13,7 @@ const DEFAULT_PASSWORD = process.env.SEED_PASSWORD || '123456'
 
 const USERS = [
   { email: 'root@mvp-rda.local', full_name: 'Root Sistema', role: 'root' },
+  { email: 'root@geniusg.com', full_name: 'Root GeniusG', role: 'root' },
   { email: 'admin@mvp-rda.local', full_name: 'Admin RDA', role: 'admin' },
   { email: 'professor@mvp-rda.local', full_name: 'Professor RDA', role: 'professor' },
 ]

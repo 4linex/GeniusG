@@ -1,15 +1,52 @@
 import { loadFormAssessmentDetail, loadTriByFormChart, type SkillBreakdownRow } from '@/lib/formAssessmentReport'
 import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
+import { EMPTY_SKILL_LABELS } from '@/lib/reportAnalytics'
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
 import { formatPercentRange } from '@/lib/formTrails'
 import { resolveScopedFormIds } from '@/lib/scopedForms'
+import { reportScopeLabel, formatReportPeriod, type ReportFilters } from '@/lib/reportAnalytics'
+import {
+  buildCriticalSkillsTable,
+  buildErrorDescriptors,
+  buildEvolutionSeries,
+  buildExecutiveSummary,
+  buildNivelDistribution,
+  buildTrailRanking,
+  type RecoveryReportCriticalSkill,
+  type RecoveryReportErrorDescriptor,
+  type RecoveryReportEvolutionPoint,
+  type RecoveryReportNivelSegment,
+  type RecoveryReportTrailRanking,
+} from '@/lib/recoveryReportSections'
+import { applyDashboardContextFilters, applyProfileLocationScope, applyDashboardDateFilters, isScopedAdminRole, isRootRole } from '@/lib/dashboardScope'
+import type { ReportComparativoRow } from '@/lib/recoveryReportLayout'
 import { stripHtml } from '@/lib/richText'
 import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
 import { NIVEL_PROFICIENCIA_LABELS } from '@/lib/scoring'
 import { supabase } from '@/lib/supabase'
 import type { LearningTrail, NivelProficiencia, Profile } from '@/types/database'
 
-export type RecoveryReportKind = 'student' | 'form' | 'skills' | 'dashboard'
+export type RecoveryReportKind =
+  | 'student'
+  | 'studentForm'
+  | 'form'
+  | 'skills'
+  | 'dashboard'
+  | 'turma'
+  | 'escola'
+  | 'municipio'
+
+export interface StudentReportOptions {
+  dateFrom?: string
+  dateTo?: string
+}
+
+export type {
+  RecoveryReportCriticalSkill,
+  RecoveryReportErrorDescriptor,
+  RecoveryReportNivelSegment,
+  RecoveryReportTrailRanking,
+}
 
 export type PerformanceLevel = 'adequado' | 'desenvolvimento' | 'iniciante' | 'nao_desenvolvido'
 
@@ -64,13 +101,27 @@ export interface RecoveryReportData {
   highlights: string[]
   performanceBreakdown: PerformanceBreakdownItem[]
   areaRows: AreaPerformanceRow[]
+  bnccRows?: AreaPerformanceRow[]
+  saebRows?: AreaPerformanceRow[]
   weakSkills: string[]
-  recommendations: string[]
+  strongSkills?: string[]
+  recommendations?: string[]
   triSummary?: TriSummaryRow[]
   bloomRows?: AreaPerformanceRow[]
   summaryMetrics?: { label: string; value: string }[]
   criticalSkillRows?: AreaPerformanceRow[]
   recommendedTrails?: RecoveryReportTrailRow[]
+  nivelDistribution?: RecoveryReportNivelSegment[]
+  criticalSkillsTable?: RecoveryReportCriticalSkill[]
+  errorDescriptors?: RecoveryReportErrorDescriptor[]
+  trailRanking?: RecoveryReportTrailRanking[]
+  executiveSummary?: string
+  municipio?: string
+  professor?: string
+  comparisonRows?: ReportComparativoRow[]
+  evolutionSeries?: RecoveryReportEvolutionPoint[]
+  evolutionDelta?: number | null
+  participation?: { evaluated: number; expected: number; rate: number } | null
 }
 
 export const PERFORMANCE_LEVEL_LABELS: Record<PerformanceLevel, string> = {
@@ -174,20 +225,33 @@ function buildRecommendations(weakSkills: string[], kind: RecoveryReportKind): s
 
 async function aggregateSkillsFromResponseIds(responseIds: string[]) {
   if (responseIds.length === 0) {
-    return { bncc: [] as SkillBreakdownRow[], bloom: [] as SkillBreakdownRow[] }
+    return {
+      bncc: [] as SkillBreakdownRow[],
+      saeb: [] as SkillBreakdownRow[],
+      bloom: [] as SkillBreakdownRow[],
+    }
   }
 
   const answers = await fetchAnswersByResponseIds(responseIds)
 
-  const byHabilidade = new Map<string, { total: number; correct: number }>()
+  const byBncc = new Map<string, { total: number; correct: number }>()
+  const bySaeb = new Map<string, { total: number; correct: number }>()
   const byBloom = new Map<string, { total: number; correct: number }>()
 
   for (const a of answers) {
-    const habKey = a.habilidade
-    const hab = byHabilidade.get(habKey) || { total: 0, correct: 0 }
-    hab.total++
-    if (a.is_correct) hab.correct++
-    byHabilidade.set(habKey, hab)
+    if (a.habilidade_bncc !== EMPTY_SKILL_LABELS.bncc) {
+      const hab = byBncc.get(a.habilidade_bncc) || { total: 0, correct: 0 }
+      hab.total++
+      if (a.is_correct) hab.correct++
+      byBncc.set(a.habilidade_bncc, hab)
+    }
+
+    if (a.descritor_saeb !== EMPTY_SKILL_LABELS.saeb) {
+      const saeb = bySaeb.get(a.descritor_saeb) || { total: 0, correct: 0 }
+      saeb.total++
+      if (a.is_correct) saeb.correct++
+      bySaeb.set(a.descritor_saeb, saeb)
+    }
 
     const bloomKey = a.bloom
     const bloom = byBloom.get(bloomKey) || { total: 0, correct: 0 }
@@ -207,7 +271,7 @@ async function aggregateSkillsFromResponseIds(responseIds: string[]) {
       }))
       .sort((a, b) => a.percentage - b.percentage)
 
-  return { bncc: toRows(byHabilidade), bloom: toRows(byBloom) }
+  return { bncc: toRows(byBncc), saeb: toRows(bySaeb), bloom: toRows(byBloom) }
 }
 
 async function fetchRecommendedTrailsByResponseIds(
@@ -279,20 +343,261 @@ async function fetchRecommendedTrailsByResponseIds(
 
 interface StudentResponseRow {
   id: string
+  form_id?: string
   student_name: string
   student_email: string
   percentual_acerto?: number | null
   theta?: number | null
   nivel_proficiencia?: NivelProficiencia | null
+  correct_answers?: number | null
+  total_questions?: number | null
   completed_at: string
+  municipio?: string | null
+  school_name?: string | null
+  turma?: string | null
   form?: { title: string; turma?: string | null } | null
+}
+
+function reportKindTitle(kind: RecoveryReportKind): string {
+  const map: Record<RecoveryReportKind, string> = {
+    student: 'Relatório Geral do Aluno',
+    studentForm: 'Relatório do Aluno por Formulário',
+    form: 'Relatório do Formulário',
+    skills: 'Relatório de Habilidades',
+    dashboard: 'Relatório Geral — Dashboard',
+    turma: 'Relatório da Turma',
+    escola: 'Relatório da Escola',
+    municipio: 'Relatório do Município',
+  }
+  return map[kind]
+}
+
+function normLabel(value: string | null | undefined): string {
+  return value?.trim() || ''
+}
+
+function formPerformanceTier(pct: number): string {
+  if (pct >= 70) return 'Desempenho alto'
+  if (pct >= 40) return 'Desempenho médio'
+  return 'Desempenho baixo'
+}
+
+function buildGroupedAreaRows(
+  responses: StudentResponseRow[],
+  groupBy: 'school' | 'turma',
+): AreaPerformanceRow[] {
+  const map = new Map<string, { scores: number[]; students: Set<string> }>()
+
+  for (const r of responses) {
+    const key = groupBy === 'school' ? normLabel(r.school_name) : normLabel(r.turma)
+    if (!key) continue
+    const cur = map.get(key) || { scores: [], students: new Set<string>() }
+    if (r.percentual_acerto != null) cur.scores.push(r.percentual_acerto)
+    cur.students.add(r.student_email)
+    map.set(key, cur)
+  }
+
+  return [...map.entries()]
+    .map(([label, stats]) => {
+      const pct = avg(stats.scores)
+      return {
+        label,
+        percentage: pct,
+        level: percentageToLevel(pct),
+        detail: `${stats.students.size} aluno(s) · ${stats.scores.length} resposta(s)`,
+      }
+    })
+    .sort((a, b) => b.percentage - a.percentage)
+}
+
+function buildTurmaSummaryMetrics(
+  responses: StudentResponseRow[],
+  trailCount: number,
+  predominantSkill?: string,
+) {
+  const byStudent = new Map<string, number[]>()
+  for (const r of responses) {
+    const scores = byStudent.get(r.student_email) || []
+    if (r.percentual_acerto != null) scores.push(r.percentual_acerto)
+    byStudent.set(r.student_email, scores)
+  }
+
+  let bom = 0
+  let ruim = 0
+  for (const scores of byStudent.values()) {
+    if (scores.length === 0) continue
+    const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length
+    if (avgScore >= 60) bom++
+    else ruim++
+  }
+
+  const metrics = [
+    { label: 'Alunos avaliados', value: String(byStudent.size) },
+    { label: 'Média TCT da turma', value: `${responseAvgTct(responses)}%` },
+    { label: 'Alunos com bom desempenho', value: String(bom) },
+    { label: 'Alunos com desempenho ruim', value: String(ruim) },
+    { label: 'Alunos em trilhas', value: String(trailCount) },
+  ]
+
+  if (predominantSkill) {
+    metrics.push({ label: 'Habilidade prioritária', value: predominantSkill })
+  }
+
+  return metrics
+}
+
+function responseAvgTct(rows: { percentual_acerto?: number | null }[]): number {
+  const scores = rows.map((r) => r.percentual_acerto).filter((s): s is number => s != null)
+  if (!scores.length) return 0
+  return Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
+}
+
+function buildScopeComparison(
+  filtered: Array<{ student_email: string; percentual_acerto?: number | null; theta?: number | null; completed_at: string; school_name?: string | null; municipio?: string | null }>,
+  referencePool: typeof filtered,
+  scope: ReportFilters | undefined,
+  kind: RecoveryReportKind,
+): ReportComparativoRow[] {
+  if (kind === 'student' || kind === 'studentForm' || kind === 'form' || kind === 'skills') return []
+
+  let ref = referencePool
+  let scopeLabel = 'Recorte'
+  let refLabel = 'Referência'
+
+  if (kind === 'turma' || scope?.turma) {
+    scopeLabel = 'Turma'
+    refLabel = 'Escola'
+    const school = scope?.school_name || filtered[0]?.school_name
+    const municipio = scope?.municipio || filtered[0]?.municipio
+    ref = referencePool.filter(
+      (r) =>
+        (!school || r.school_name === school) &&
+        (!municipio || r.municipio === municipio),
+    )
+  } else if (kind === 'escola' || scope?.school_name) {
+    scopeLabel = 'Escola'
+    refLabel = 'Município'
+    const municipio = scope?.municipio || filtered[0]?.municipio
+    ref = referencePool.filter((r) => !municipio || r.municipio === municipio)
+  } else if (kind === 'municipio' || scope?.municipio) {
+    scopeLabel = 'Município'
+    refLabel = 'Rede'
+    ref = referencePool
+  } else {
+    scopeLabel = 'Período atual'
+    refLabel = 'Mês anterior'
+    const now = new Date()
+    const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1
+    const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+    const previous = referencePool.filter((r) => {
+      const d = new Date(r.completed_at)
+      return d.getMonth() === prevMonth && d.getFullYear() === prevYear
+    })
+    ref = previous.length > 0 ? previous : referencePool
+  }
+
+  const scopeTct = responseAvgTct(filtered)
+  const refTct = responseAvgTct(ref)
+  if (!scopeTct && !refTct) return []
+
+  const rows: ReportComparativoRow[] = [
+    {
+      label: 'Desempenho Geral',
+      scopeLabel,
+      scopeValue: scopeTct,
+      referenceLabel: refLabel,
+      referenceValue: refTct,
+    },
+  ]
+
+  const scopeTheta = avgTheta(filtered.map((r) => r.theta ?? null))
+  const refTheta = avgTheta(ref.map((r) => r.theta ?? null))
+  if (scopeTheta != null && refTheta != null) {
+    rows.push({
+      label: 'TRI Médio',
+      scopeLabel,
+      scopeValue: scopeTheta,
+      referenceLabel: refLabel,
+      referenceValue: refTheta,
+    })
+  }
+
+  const scopeStudents = new Set(filtered.map((r) => r.student_email)).size
+  const refStudents = new Set(ref.map((r) => r.student_email)).size
+  if (scopeStudents > 0) {
+    rows.push({
+      label: 'Alunos Avaliados',
+      scopeLabel,
+      scopeValue: scopeStudents,
+      referenceLabel: refLabel,
+      referenceValue: refStudents,
+    })
+  }
+
+  return rows
+}
+
+async function enrichReportSections(
+  responses: StudentResponseRow[],
+  bncc: SkillBreakdownRow[],
+  saeb: SkillBreakdownRow[],
+  bloom: SkillBreakdownRow[],
+  formAreaRows: AreaPerformanceRow[],
+  scope?: { municipio?: string; escola?: string; turma?: string },
+) {
+  const tctScores = responses
+    .map((r) => r.percentual_acerto)
+    .filter((s): s is number => s != null)
+  const overallPercentage = avg(tctScores)
+  const uniqueStudents = new Set(responses.map((r) => r.student_email)).size
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
+  const trailRanking = await buildTrailRanking(
+    responses.map((r) => ({ id: r.id, student_email: r.student_email })),
+  )
+
+  const evolutionSeries = buildEvolutionSeries(responses)
+  const evolutionDelta =
+    evolutionSeries.length >= 2
+      ? Math.round((evolutionSeries[evolutionSeries.length - 1].value - evolutionSeries[0].value) * 10) / 10
+      : null
+
+  return {
+    nivelDistribution: buildNivelDistribution(responses),
+    criticalSkillsTable: buildCriticalSkillsTable(bncc, saeb),
+    errorDescriptors: buildErrorDescriptors(saeb),
+    trailRanking,
+    evolutionSeries,
+    evolutionDelta,
+    executiveSummary: buildExecutiveSummary({
+      overallPercentage,
+      uniqueStudents,
+      totalResponses: responses.length,
+      weakSkills,
+      weakestForm: [...formAreaRows].sort((a, b) => a.percentage - b.percentage)[0]?.label,
+      weakestBloom: [...bloom].sort((a, b) => a.percentage - b.percentage)[0]?.label,
+      municipio: scope?.municipio,
+      escola: scope?.escola,
+      turma: scope?.turma,
+      trailRanking,
+    }),
+  }
 }
 
 export async function buildStudentRecoveryReport(
   responses: StudentResponseRow[],
   email: string,
+  options?: StudentReportOptions,
 ): Promise<RecoveryReportData | null> {
-  const studentResponses = responses.filter((r) => r.student_email === email)
+  let studentResponses = responses.filter((r) => r.student_email === email)
+  if (studentResponses.length === 0) return null
+
+  studentResponses = applyDashboardDateFilters(studentResponses, {
+    dateFrom: options?.dateFrom,
+    dateTo: options?.dateTo,
+  })
   if (studentResponses.length === 0) return null
 
   const student = studentResponses[0]
@@ -301,24 +606,36 @@ export async function buildStudentRecoveryReport(
   const averageTheta = avgTheta(studentResponses.map((r) => r.theta ?? null))
 
   const responseIds = studentResponses.map((r) => r.id)
-  const [{ bncc, bloom }, recommendedTrails] = await Promise.all([
+  const [{ bncc, saeb, bloom }, recommendedTrails] = await Promise.all([
     aggregateSkillsFromResponseIds(responseIds),
     fetchRecommendedTrailsByResponseIds(responseIds),
   ])
 
-  const areaRows: AreaPerformanceRow[] = studentResponses.map((r) => ({
-    label: r.form?.title || 'Formulário',
-    percentage: r.percentual_acerto ?? 0,
-    level: percentageToLevel(r.percentual_acerto ?? 0),
-    detail: r.nivel_proficiencia
-      ? NIVEL_PROFICIENCIA_LABELS[r.nivel_proficiencia]
-      : r.theta != null
-        ? `θ ${r.theta.toFixed(2)}`
-        : undefined,
-  }))
+  const areaRows: AreaPerformanceRow[] =
+    studentResponses.length > 1
+      ? studentResponses
+          .map((r) => ({
+            label: r.form?.title || 'Formulário',
+            percentage: r.percentual_acerto ?? 0,
+            level: percentageToLevel(r.percentual_acerto ?? 0),
+            detail:
+              r.percentual_acerto != null
+                ? formPerformanceTier(r.percentual_acerto)
+                : r.nivel_proficiencia
+                  ? NIVEL_PROFICIENCIA_LABELS[r.nivel_proficiencia]
+                  : undefined,
+          }))
+          .sort((a, b) => b.percentage - a.percentage)
+      : []
 
-  const weakSkills = bncc.filter((s) => s.percentage < 60).map((s) => s.label)
-  const strongSkills = bncc.filter((s) => s.percentage >= 70).map((s) => s.label)
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
+  const strongSkills = [
+    ...bncc.filter((s) => s.percentage >= 70).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage >= 70).map((s) => s.label),
+  ]
 
   const highlights: string[] = [
     `${studentResponses.length} formulário(s) analisado(s) no período.`,
@@ -341,11 +658,19 @@ export async function buildStudentRecoveryReport(
     )
   }
 
-  const dates = studentResponses.map((r) => r.completed_at).sort()
-  const periodo =
-    dates.length > 0
-      ? `${new Intl.DateTimeFormat('pt-BR').format(new Date(dates[0]))} — ${new Intl.DateTimeFormat('pt-BR').format(new Date(dates[dates.length - 1]))}`
-      : undefined
+  const periodo = formatReportPeriod(studentResponses)
+  const sections = await enrichReportSections(
+    studentResponses,
+    bncc,
+    saeb,
+    bloom,
+    areaRows,
+    {
+      municipio: studentResponses[0]?.municipio ?? undefined,
+      escola: studentResponses[0]?.school_name ?? undefined,
+      turma: studentResponses[0]?.turma ?? student.form?.turma ?? undefined,
+    },
+  )
 
   return {
     kind: 'student',
@@ -353,8 +678,9 @@ export async function buildStudentRecoveryReport(
     reportDate: formatReportDate(),
     studentName: student.student_name,
     studentEmail: student.student_email,
-    turma: student.form?.turma || '5º Ano',
-    escola: '—',
+    turma: studentResponses[0]?.turma || student.form?.turma || '—',
+    escola: studentResponses[0]?.school_name || '—',
+    municipio: studentResponses[0]?.municipio || undefined,
     periodo,
     overallPercentage,
     averageTheta,
@@ -363,19 +689,164 @@ export async function buildStudentRecoveryReport(
     performanceBreakdown: buildBreakdownFromPercentages(areaRows.map((r) => ({ pct: r.percentage }))),
     areaRows,
     weakSkills: weakSkills.slice(0, 6),
-    recommendations: buildRecommendations(weakSkills, 'student'),
-    bloomRows: skillsToAreaRows(bloom.slice(0, 8), 'Bloom'),
+    strongSkills: strongSkills.slice(0, 6),
     recommendedTrails,
+    ...sections,
   }
 }
 
-export async function buildFormRecoveryReport(formId: string): Promise<RecoveryReportData | null> {
+/** Relatório de um único formulário respondido pelo aluno. */
+export async function buildStudentFormRecoveryReport(
+  responses: StudentResponseRow[],
+  email: string,
+  formId: string,
+): Promise<RecoveryReportData | null> {
+  const response = responses.find((r) => r.student_email === email && r.form_id === formId)
+  if (!response) return null
+
+  const overallPercentage = response.percentual_acerto ?? 0
+  const averageTheta = response.theta ?? null
+  const responseIds = [response.id]
+
+  const [{ bncc, saeb, bloom }, recommendedTrails] = await Promise.all([
+    aggregateSkillsFromResponseIds(responseIds),
+    fetchRecommendedTrailsByResponseIds(responseIds),
+  ])
+
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
+  const strongSkills = [
+    ...bncc.filter((s) => s.percentage >= 70).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage >= 70).map((s) => s.label),
+  ]
+
+  const correct = response.correct_answers
+  const total = response.total_questions
+  const highlights: string[] = [
+    response.form?.title
+      ? `Formulário: ${response.form.title}.`
+      : 'Avaliação individual do aluno.',
+    correct != null && total != null
+      ? `Acertou ${correct} de ${total} questões (${overallPercentage}%).`
+      : `Desempenho TCT: ${overallPercentage}%.`,
+  ]
+  if (weakSkills.length > 0) {
+    highlights.push(`${weakSkills.length} habilidade(s) com déficit nesta avaliação.`)
+  }
+  if (strongSkills.length > 0) {
+    highlights.push(`Destaque em: ${strongSkills.slice(0, 2).join(', ')}.`)
+  }
+  if (recommendedTrails.length > 0) {
+    highlights.push(`Trilha recomendada: ${recommendedTrails[0].trailTitle}.`)
+  }
+
+  const sections = await enrichReportSections(
+    [response],
+    bncc,
+    saeb,
+    bloom,
+    [
+      {
+        label: response.form?.title || 'Formulário',
+        percentage: overallPercentage,
+        level: percentageToLevel(overallPercentage),
+      },
+    ],
+    {
+      municipio: response.municipio ?? undefined,
+      escola: response.school_name ?? undefined,
+      turma: response.turma ?? response.form?.turma ?? undefined,
+    },
+  )
+
+  return {
+    kind: 'studentForm',
+    reportTitle: `${APP_NAME} — Relatório por Formulário`,
+    reportDate: formatReportDate(),
+    studentName: response.student_name,
+    studentEmail: response.student_email,
+    formTitle: response.form?.title,
+    turma: response.turma || response.form?.turma || '—',
+    escola: response.school_name || '—',
+    municipio: response.municipio || undefined,
+    periodo: formatReportPeriod([response]),
+    overallPercentage,
+    averageTheta,
+    totalItems: total ?? undefined,
+    highlights,
+    performanceBreakdown: buildBreakdownFromPercentages([{ pct: overallPercentage }]),
+    areaRows: [
+      {
+        label: response.form?.title || 'Formulário',
+        percentage: overallPercentage,
+        level: percentageToLevel(overallPercentage),
+      },
+    ],
+    weakSkills: weakSkills.slice(0, 8),
+    strongSkills: strongSkills.slice(0, 8),
+    recommendedTrails,
+    summaryMetrics:
+      correct != null && total != null
+        ? [
+            { label: 'Questões corretas', value: `${correct} de ${total}` },
+            { label: 'Taxa de acerto', value: `${overallPercentage}%` },
+          ]
+        : undefined,
+    ...sections,
+  }
+}
+
+export async function buildFormRecoveryReport(
+  formId: string,
+  filters?: Pick<ReportFilters, 'dateFrom' | 'dateTo' | 'turma' | 'studentEmail'>,
+): Promise<RecoveryReportData | null> {
   const data = await loadFormAssessmentDetail(formId)
   if (!data) return null
 
-  const { summary, students, bnccSkills, bloomSkills } = data
+  let students = data.students
+  if (filters?.studentEmail) {
+    students = students.filter((s) => s.student_email === filters.studentEmail)
+  }
+  if (filters?.turma) {
+    students = students.filter((s) => (s as { turma?: string | null }).turma === filters.turma)
+  }
+  if (filters?.dateFrom || filters?.dateTo) {
+    students = students.filter((s) => {
+      const completed = new Date(s.completed_at)
+      if (filters.dateFrom && completed < new Date(`${filters.dateFrom}T00:00:00`)) return false
+      if (filters.dateTo && completed > new Date(`${filters.dateTo}T23:59:59`)) return false
+      return true
+    })
+  }
+  if (students.length === 0) return null
+
+  const { summary, bnccSkills, bloomSkills, saebSkills } = data
   const weakSkills = bnccSkills.filter((s) => s.percentage < 60).map((s) => s.label)
   const recommendedTrails = await fetchRecommendedTrailsByResponseIds(students.map((s) => s.id))
+  const formAreaRows = skillsToAreaRows(bnccSkills.slice(0, 10), 'BNCC')
+  const studentRows: StudentResponseRow[] = students.map((s) => ({
+    id: s.id,
+    student_name: s.student_name,
+    student_email: s.student_email,
+    percentual_acerto: s.percentual_acerto,
+    theta: s.theta,
+    nivel_proficiencia: s.nivel_proficiencia,
+    completed_at: s.completed_at,
+    turma: summary.turma,
+    school_name: null,
+    municipio: null,
+    form: { title: summary.title, turma: summary.turma },
+  }))
+  const sections = await enrichReportSections(
+    studentRows,
+    bnccSkills,
+    saebSkills ?? [],
+    bloomSkills,
+    formAreaRows,
+    { turma: summary.turma ?? undefined },
+  )
 
   const highlights: string[] = [
     `${summary.totalResponses} resposta(s) registradas neste formulário.`,
@@ -399,49 +870,212 @@ export async function buildFormRecoveryReport(formId: string): Promise<RecoveryR
     )
   }
 
+  const avgTct =
+    students.length > 0
+      ? avg(students.map((s) => s.percentual_acerto).filter((v): v is number => v != null))
+      : summary.averageTct
+
   return {
     kind: 'form',
     reportTitle: `${APP_NAME} — Relatório do Formulário`,
     reportDate: formatReportDate(),
     formTitle: summary.title,
-    turma: summary.turma || '5º Ano',
+    turma: summary.turma || '—',
     escola: '—',
-    periodo: formatReportDate(),
-    overallPercentage: summary.averageTct,
-    averageTheta: summary.averageTheta,
-    totalItems: summary.totalResponses,
+    periodo: formatReportPeriod(students, filters),
+    overallPercentage: avgTct,
+    averageTheta: avgTheta(students.map((s) => s.theta ?? null)),
+    totalItems: students.length,
     highlights,
     performanceBreakdown: buildBreakdownFromPercentages(
       students.map((s) => ({ pct: s.percentual_acerto ?? 0 })),
     ),
-    areaRows: skillsToAreaRows(bnccSkills.slice(0, 10), 'BNCC'),
+    areaRows: [],
     weakSkills: weakSkills.slice(0, 6),
-    recommendations: buildRecommendations(weakSkills, 'form'),
     bloomRows: skillsToAreaRows(bloomSkills.slice(0, 8), 'Bloom'),
     recommendedTrails,
+    summaryMetrics: [
+      {
+        label: 'Alunos avaliados',
+        value: String(new Set(students.map((s) => s.student_email)).size),
+      },
+      { label: 'Total de respostas', value: String(students.length) },
+    ],
+    triSummary:
+      summary.averageTheta != null
+        ? [
+            {
+              label: summary.title,
+              averageTheta: summary.averageTheta,
+              averageTct: summary.averageTct,
+              totalResponses: summary.totalResponses,
+            },
+          ]
+        : [],
+    ...sections,
+  }
+}
+
+export async function buildFormsOverviewRecoveryReport(
+  responseIds: string[],
+  scope?: ReportFilters,
+): Promise<RecoveryReportData | null> {
+  if (responseIds.length === 0) return null
+
+  const { data: responseRows } = await supabase
+    .from('form_responses')
+    .select(
+      'id, form_id, student_name, student_email, percentual_acerto, theta, nivel_proficiencia, completed_at, municipio, school_name, turma, form:forms(title, turma)',
+    )
+    .in('id', responseIds)
+
+  type OverviewRow = StudentResponseRow & { form_id?: string }
+  const responses = (responseRows || []) as unknown as OverviewRow[]
+  if (responses.length === 0) return null
+
+  const formGroups = new Map<string, { title: string; rows: OverviewRow[] }>()
+  for (const r of responses) {
+    const formId = r.form_id || 'unknown'
+    const title = r.form?.title || 'Formulário'
+    const group = formGroups.get(formId) || { title, rows: [] }
+    group.rows.push(r)
+    formGroups.set(formId, group)
+  }
+
+  const { bncc, saeb, bloom } = await aggregateSkillsFromResponseIds(responseIds)
+  const formIds = [...formGroups.keys()].filter((id) => id !== 'unknown')
+  const [recommendedTrails, triSummary] = await Promise.all([
+    fetchRecommendedTrailsByResponseIds(responseIds),
+    loadTriByFormChart(formIds.length > 0 ? formIds : null),
+  ])
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
+
+  const formAreaRows = [...formGroups.values()]
+    .map(({ title, rows }) => {
+      const pct = responseAvgTct(rows)
+      return {
+        label: title,
+        percentage: pct,
+        level: percentageToLevel(pct),
+        detail: `${rows.length} resposta(s) · ${new Set(rows.map((row) => row.student_email)).size} aluno(s)`,
+      }
+    })
+    .sort((a, b) => b.percentage - a.percentage)
+
+  const overallPct = responseAvgTct(responses)
+  const byNivel: Record<NivelProficiencia, number> = {
+    inicial: 0,
+    intermediario: 0,
+    avancado: 0,
+  }
+  for (const r of responses) {
+    const nivel = r.nivel_proficiencia as NivelProficiencia | null
+    if (nivel) byNivel[nivel]++
+  }
+
+  const highlights: string[] = [
+    `${responses.length} resposta(s) em ${formGroups.size} formulário(s).`,
+    `TCT médio geral: ${overallPct}%.`,
+    `Alunos únicos: ${new Set(responses.map((r) => r.student_email)).size}.`,
+  ]
+
+  const nivelParts = (['inicial', 'intermediario', 'avancado'] as NivelProficiencia[])
+    .filter((n) => byNivel[n] > 0)
+    .map((n) => `${NIVEL_PROFICIENCIA_LABELS[n]}: ${byNivel[n]}`)
+
+  if (nivelParts.length > 0) {
+    highlights.push(`Distribuição por nível — ${nivelParts.join('; ')}.`)
+  }
+
+  if (formAreaRows.length > 0) {
+    const best = formAreaRows[0]
+    highlights.push(`Melhor desempenho: "${best.label}" (${best.percentage}%).`)
+    if (formAreaRows.length > 1) {
+      const worst = formAreaRows[formAreaRows.length - 1]
+      highlights.push(`Menor desempenho: "${worst.label}" (${worst.percentage}%).`)
+    }
+  }
+
+  const sections = await enrichReportSections(
+    responses,
+    bncc,
+    saeb,
+    bloom,
+    formAreaRows,
+    {
+      municipio: scope?.municipio,
+      escola: scope?.school_name,
+      turma: scope?.turma,
+    },
+  )
+
+  const scopedFormTitle = scope?.formId
+    ? [...formGroups.values()][0]?.title
+    : undefined
+
+  return {
+    kind: 'form',
+    reportTitle: `${APP_NAME} — ${reportKindTitle('form')}`,
+    reportDate: formatReportDate(),
+    formTitle: scopedFormTitle ?? 'Visão geral — todos os formulários',
+    turma: scope?.turma || 'Todas as turmas',
+    escola: reportScopeLabel(scope ?? { scopeType: 'all' }),
+    municipio: scope?.municipio,
+    periodo: formatReportPeriod(responses, scope),
+    overallPercentage: overallPct,
+    averageTheta: avgTheta(responses.map((r) => r.theta ?? null)),
+    totalItems: responses.length,
+    highlights,
+    performanceBreakdown: buildBreakdownFromPercentages(
+      responses.map((r) => ({ pct: r.percentual_acerto ?? 0 })),
+    ),
+    areaRows: formAreaRows,
+    weakSkills: weakSkills.slice(0, 8),
+    bloomRows: skillsToAreaRows(bloom.slice(0, 8), 'Bloom'),
+    recommendedTrails,
+    summaryMetrics: [
+      { label: 'Formulários analisados', value: String(formGroups.size) },
+      {
+        label: 'Alunos únicos',
+        value: String(new Set(responses.map((r) => r.student_email)).size),
+      },
+    ],
+    triSummary: triSummary.slice(0, 8).map((t) => ({
+      label: t.title,
+      averageTheta: t.averageTheta,
+      averageTct: t.averageTct,
+      totalResponses: t.totalResponses,
+    })),
+    ...sections,
   }
 }
 
 export async function buildSkillsRecoveryReport(
   responseIds: string[],
   scopedFormIds: string[] | null,
+  scope?: ReportFilters,
 ): Promise<RecoveryReportData | null> {
   if (responseIds.length === 0) return null
 
-  const { bncc, bloom } = await aggregateSkillsFromResponseIds(responseIds)
+  const { bncc, saeb, bloom } = await aggregateSkillsFromResponseIds(responseIds)
   const triSummary = await loadTriByFormChart(scopedFormIds)
 
-  const allSkillPcts = [...bncc, ...bloom].map((s) => s.percentage)
-  const overallPercentage = allSkillPcts.length > 0 ? avg(allSkillPcts) : 0
-  const weakSkills = bncc.filter((s) => s.percentage < 60).map((s) => s.label)
-  const criticalCount = bncc.filter((s) => s.percentage < 60).length
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
+  const criticalCount =
+    bncc.filter((s) => s.percentage < 60).length + saeb.filter((s) => s.percentage < 60).length
 
   const highlights: string[] = [
     `${responseIds.length} resposta(s) analisadas.`,
-    `${bncc.length} habilidade(s) BNCC/SAEB mapeadas.`,
+    `${bncc.length} habilidade(s) BNCC e ${saeb.length} descritor(es) SAEB mapeados.`,
     criticalCount > 0
-      ? `${criticalCount} habilidade(s) críticas (abaixo de 60%).`
-      : 'Nenhuma habilidade crítica identificada no conjunto analisado.',
+      ? `${criticalCount} competência(s) críticas (abaixo de 60%).`
+      : 'Nenhuma competência crítica identificada no conjunto analisado.',
   ]
 
   if (triSummary.length > 0) {
@@ -451,33 +1085,64 @@ export async function buildSkillsRecoveryReport(
     )
   }
 
+  const { data: responseRows } = await supabase
+    .from('form_responses')
+    .select(
+      'id, student_name, student_email, percentual_acerto, theta, nivel_proficiencia, completed_at, municipio, school_name, turma',
+    )
+    .in('id', responseIds)
+
+  const responses = (responseRows || []) as StudentResponseRow[]
+  const overallPercentage = responseAvgTct(responses)
+  const averageTheta = avgTheta(responses.map((r) => r.theta ?? null))
+
+  const sections = await enrichReportSections(
+    responses,
+    bncc,
+    saeb,
+    bloom,
+    skillsToAreaRows(bncc.slice(0, 12), 'BNCC'),
+    {
+      municipio: scope?.municipio,
+      escola: scope?.school_name,
+      turma: scope?.turma,
+    },
+  )
+
   return {
     kind: 'skills',
-    reportTitle: `${APP_NAME} — Relatório de Habilidades`,
+    reportTitle: `${APP_NAME} — ${reportKindTitle('skills')}`,
     reportDate: formatReportDate(),
-    turma: 'Todas as turmas',
-    escola: '—',
-    periodo: formatReportDate(),
+    turma: scope?.turma || 'Todas as turmas',
+    escola: reportScopeLabel(scope ?? { scopeType: 'all' }),
+    municipio: scope?.municipio,
+    periodo: formatReportPeriod(responses, scope),
     overallPercentage,
-    totalItems: bncc.length + bloom.length,
+    averageTheta,
+    totalItems: responseIds.length,
     highlights,
     performanceBreakdown: buildBreakdownFromPercentages(bncc.map((s) => ({ pct: s.percentage }))),
-    areaRows: skillsToAreaRows(bncc.slice(0, 12), 'BNCC'),
+    areaRows: [],
+    bnccRows: skillsToAreaRows(bncc.slice(0, 12), 'BNCC'),
+    saebRows: skillsToAreaRows(saeb.slice(0, 12), 'SAEB'),
     bloomRows: skillsToAreaRows(bloom.slice(0, 8), 'Bloom'),
     weakSkills: weakSkills.slice(0, 8),
-    recommendations: buildRecommendations(weakSkills, 'skills'),
+    summaryMetrics: [{ label: 'Respostas analisadas', value: String(responseIds.length) }],
     triSummary: triSummary.slice(0, 6).map((t) => ({
       label: t.title,
       averageTheta: t.averageTheta,
       averageTct: t.averageTct,
       totalResponses: t.totalResponses,
     })),
+    ...sections,
   }
 }
 
 export async function buildDashboardRecoveryReport(
   userId: string,
   role: Profile['role'],
+  scope?: ReportFilters,
+  profile?: Pick<Profile, 'municipio' | 'school_name' | 'turmas'> | null,
 ): Promise<RecoveryReportData | null> {
   const scopedFormIds = await resolveScopedFormIds(userId, role)
 
@@ -497,7 +1162,7 @@ export async function buildDashboardRecoveryReport(
   let responsesQuery = supabase
     .from('form_responses')
     .select(
-      'id, form_id, student_email, percentual_acerto, theta, nivel_proficiencia, completed_at',
+      'id, form_id, student_name, student_email, percentual_acerto, theta, nivel_proficiencia, completed_at, municipio, school_name, turma',
     )
 
   const [{ data: forms }, { data: links }] = await Promise.all([formsQuery, linksQuery])
@@ -509,14 +1174,67 @@ export async function buildDashboardRecoveryReport(
     responsesQuery = responsesQuery.in('form_id', ['00000000-0000-0000-0000-000000000000'])
   }
 
+  let effectiveScope = scope
+  if (isScopedAdminRole(role) && profile && !scope?.scopeType) {
+    effectiveScope = {
+      scopeType: profile.school_name ? 'escola' : 'municipio',
+      municipio: profile.municipio ?? undefined,
+      school_name: profile.school_name ?? undefined,
+      dateFrom: scope?.dateFrom,
+      dateTo: scope?.dateTo,
+    }
+  } else if (scope) {
+    effectiveScope = {
+      ...scope,
+      municipio: scope.municipio ?? profile?.municipio ?? undefined,
+      school_name: scope.school_name ?? profile?.school_name ?? undefined,
+    }
+  }
+
   const { data: responses } = await responsesQuery
-  const responseList = responses || []
+  let responseList = responses || []
+
+  if (isScopedAdminRole(role) && profile && !scope?.scopeType) {
+    responseList = applyProfileLocationScope(responseList, profile)
+  }
+
+  const comparisonPool = applyDashboardDateFilters(
+    applyDashboardContextFilters(responseList, {
+      municipio: effectiveScope?.municipio,
+      school_name: effectiveScope?.school_name,
+    }),
+    {
+      dateFrom: effectiveScope?.dateFrom,
+      dateTo: effectiveScope?.dateTo,
+    },
+  )
+
+  responseList = applyDashboardContextFilters(responseList, {
+    municipio: effectiveScope?.municipio,
+    school_name: effectiveScope?.school_name,
+    turma: effectiveScope?.turma,
+  })
+  responseList = applyDashboardDateFilters(responseList, {
+    dateFrom: effectiveScope?.dateFrom,
+    dateTo: effectiveScope?.dateTo,
+  })
 
   if (responseList.length === 0) return null
 
   const responseIds = responseList.map((r) => r.id)
-  const { bncc, bloom } = await aggregateSkillsFromResponseIds(responseIds)
-  const triSummary = await loadTriByFormChart(scopedFormIds)
+  const { bncc, saeb, bloom } = await aggregateSkillsFromResponseIds(responseIds)
+
+  const filteredFormIds = [...new Set(responseList.map((r) => r.form_id))]
+  const triFormScope =
+    isRootRole(role) &&
+    !effectiveScope?.municipio &&
+    !effectiveScope?.school_name &&
+    !effectiveScope?.turma &&
+    !effectiveScope?.dateFrom &&
+    !effectiveScope?.dateTo
+      ? null
+      : filteredFormIds
+  const triSummary = await loadTriByFormChart(triFormScope)
 
   const tctScores = responseList
     .map((r) => r.percentual_acerto)
@@ -525,7 +1243,10 @@ export async function buildDashboardRecoveryReport(
   const averageTheta = avgTheta(responseList.map((r) => r.theta ?? null))
 
   const uniqueStudents = new Set(responseList.map((r) => r.student_email)).size
-  const weakSkills = bncc.filter((s) => s.percentage < 60).map((s) => s.label)
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
   const criticalCount = weakSkills.length
 
   const byNivel: Record<NivelProficiencia, number> = {
@@ -585,33 +1306,93 @@ export async function buildDashboardRecoveryReport(
     highlights.push(`Proficiência — ${nivelParts.join('; ')}.`)
   }
 
+  const reportKind: RecoveryReportKind =
+    effectiveScope?.scopeType === 'turma'
+      ? 'turma'
+      : effectiveScope?.scopeType === 'escola'
+        ? 'escola'
+        : effectiveScope?.scopeType === 'municipio'
+          ? 'municipio'
+          : 'dashboard'
+
+  const scopedAreaRows =
+    reportKind === 'municipio'
+      ? buildGroupedAreaRows(responseList as StudentResponseRow[], 'school')
+      : reportKind === 'escola'
+        ? buildGroupedAreaRows(responseList as StudentResponseRow[], 'turma')
+        : formAreaRows
+
+  const comparisonRows = buildScopeComparison(
+    responseList,
+    comparisonPool,
+    effectiveScope,
+    reportKind,
+  )
+
+  const predominantSkill = [...bncc, ...saeb].sort((a, b) => a.percentage - b.percentage)[0]?.label
+
+  const sections = await enrichReportSections(
+    responseList as StudentResponseRow[],
+    bncc,
+    saeb,
+    bloom,
+    scopedAreaRows,
+    {
+      municipio: effectiveScope?.municipio,
+      escola: effectiveScope?.school_name,
+      turma: effectiveScope?.turma,
+    },
+  )
+
+  const trailStudentCount =
+    sections.trailRanking?.reduce((sum, row) => sum + row.studentCount, 0) ?? 0
+
+  const defaultSummaryMetrics = [
+    { label: 'Avaliações (links)', value: String(links?.length ?? 0) },
+    { label: 'Formulários c/ respostas', value: String(formsWithResponses) },
+    { label: 'Alunos avaliados', value: String(uniqueStudents) },
+    { label: 'Total de respostas', value: String(responseList.length) },
+    { label: 'Média TCT geral', value: `${overallPercentage}%` },
+    { label: 'Habilidades críticas', value: String(criticalCount) },
+  ]
+
+  const summaryMetrics =
+    reportKind === 'turma'
+      ? buildTurmaSummaryMetrics(
+          responseList as StudentResponseRow[],
+          trailStudentCount,
+          predominantSkill,
+        )
+      : defaultSummaryMetrics
+
   return {
-    kind: 'dashboard',
-    reportTitle: `${APP_NAME} — Relatório Geral`,
+    kind: reportKind,
+    reportTitle: `${APP_NAME} — ${reportKindTitle(reportKind)}`,
     reportDate: formatReportDate(),
-    turma: 'Visão consolidada',
-    escola: 'Todas as escolas',
-    periodo: formatReportDate(),
+    turma: effectiveScope?.turma || 'Visão consolidada',
+    escola:
+      effectiveScope?.school_name ||
+      (reportKind === 'dashboard' && isRootRole(role) ? 'Todas as escolas' : reportScopeLabel(effectiveScope ?? scope ?? { scopeType: 'all' })),
+    municipio: effectiveScope?.municipio,
+    periodo: formatReportPeriod(responseList, effectiveScope),
     overallPercentage,
     averageTheta,
     totalItems: responseList.length,
     highlights,
-    summaryMetrics: [
-      { label: 'Avaliações (links)', value: String(links?.length ?? 0) },
-      { label: 'Formulários c/ respostas', value: String(formsWithResponses) },
-      { label: 'Alunos avaliados', value: String(uniqueStudents) },
-      { label: 'Total de respostas', value: String(responseList.length) },
-      { label: 'Média TCT geral', value: `${overallPercentage}%` },
-      { label: 'Habilidades críticas', value: String(criticalCount) },
-    ],
+    summaryMetrics,
     performanceBreakdown: buildBreakdownFromPercentages(
       tctScores.map((pct) => ({ pct })),
     ),
-    areaRows: formAreaRows.slice(0, 12),
+    areaRows: scopedAreaRows.slice(0, 12),
+    bnccRows: skillsToAreaRows(bncc.slice(0, 12), 'BNCC'),
     criticalSkillRows: skillsToAreaRows(
-      bncc.filter((s) => s.percentage < 60).slice(0, 8),
-      'BNCC',
+      [
+        ...bncc.filter((s) => s.percentage < 60),
+        ...saeb.filter((s) => s.percentage < 60),
+      ].slice(0, 8),
+      'BNCC/SAEB',
     ),
+    saebRows: skillsToAreaRows(saeb.slice(0, 12), 'SAEB'),
     bloomRows: skillsToAreaRows(bloom.slice(0, 8), 'Bloom'),
     weakSkills: weakSkills.slice(0, 8),
     recommendations: buildRecommendations(weakSkills, 'dashboard'),
@@ -621,12 +1402,30 @@ export async function buildDashboardRecoveryReport(
       averageTct: t.averageTct,
       totalResponses: t.totalResponses,
     })),
+    comparisonRows,
+    ...sections,
   }
 }
 
 export function recoveryReportFilename(data: RecoveryReportData): string {
-  if (data.kind === 'dashboard') {
-    return `relatorio-geral-dashboard-${Date.now()}.pdf`
+  const kindSlug =
+    data.kind === 'dashboard'
+      ? 'dashboard'
+      : data.kind === 'turma'
+        ? `turma-${(data.turma || 'geral').replace(/\s+/g, '-').slice(0, 24)}`
+        : data.kind === 'escola'
+          ? 'escola'
+          : data.kind === 'municipio'
+            ? 'municipio'
+            : data.kind
+  if (data.kind === 'dashboard' || data.kind === 'turma' || data.kind === 'escola' || data.kind === 'municipio') {
+    return `relatorio-${kindSlug}-${Date.now()}.pdf`
+  }
+  if (data.kind === 'studentForm') {
+    const slug = (data.formTitle || data.studentName || 'formulario')
+      .replace(/[^a-zA-Z0-9\u00C0-\u024F]+/g, '-')
+      .slice(0, 40)
+    return `relatorio-aluno-formulario-${slug}-${Date.now()}.pdf`
   }
   const slug = data.studentName || data.formTitle || 'habilidades'
   const safe = slug.replace(/[^a-zA-Z0-9\u00C0-\u024F]+/g, '-').slice(0, 40)

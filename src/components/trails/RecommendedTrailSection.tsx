@@ -1,7 +1,6 @@
-import { Map } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
 import { ProfessorTrailPanel } from '@/components/trails/ProfessorTrailPanel'
+import { RecommendedTrailHighlight } from '@/components/trails/RecommendedTrailHighlight'
 import type { LearningTrail } from '@/types/database'
 
 interface RecommendedTrailSectionProps {
@@ -18,30 +17,25 @@ export function RecommendedTrailSection({
   studentPercent,
 }: RecommendedTrailSectionProps) {
   return (
-    <Card className="mb-8">
-      <div className="flex items-start gap-3 mb-5">
-        <div className="p-2 rounded-xl bg-primary-500/15 shrink-0">
-          <Map size={20} className="text-primary-400" />
-        </div>
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold text-white">Trilha de recomposição recomendada</h2>
-          <p className="text-sm text-slate-400 mt-1">
-            Atribuída automaticamente com base nas respostas desta avaliação. Visível apenas para
-            o professor.
-          </p>
-          <div className="flex flex-wrap items-center gap-2 mt-3">
-            <span className="text-sm font-medium text-primary-300">{title}</span>
-            {percentRange && <Badge variant="default">{percentRange}</Badge>}
-            {studentPercent != null && (
-              <Badge variant="info">{studentPercent.toFixed(1)}% de acerto</Badge>
-            )}
-          </div>
-        </div>
+    <Card className="mb-8 !p-0 overflow-hidden border-primary-500/25">
+      <div className="p-4 sm:p-6">
+        <RecommendedTrailHighlight
+          title={title}
+          percentRange={percentRange}
+          trail={trail}
+          studentPercent={studentPercent}
+        />
+        <p className="mt-4 text-sm text-slate-400">
+          Atribuída automaticamente com base nas respostas desta avaliação. Visível apenas para o
+          professor.
+        </p>
       </div>
       {trail ? (
-        <ProfessorTrailPanel trail={trail} />
+        <div className="border-t border-white/10 bg-white/[0.02] p-4 sm:p-6">
+          <ProfessorTrailPanel trail={trail} />
+        </div>
       ) : (
-        <p className="text-sm text-slate-500">
+        <p className="border-t border-white/10 px-4 pb-4 text-sm text-slate-500 sm:px-6 sm:pb-6">
           A trilha foi registrada, mas o conteúdo pedagógico não está disponível.
         </p>
       )}

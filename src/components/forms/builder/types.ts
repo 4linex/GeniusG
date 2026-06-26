@@ -1,7 +1,7 @@
 import type { QuestionAlternative } from '@/types/database'
 import { ANO_SERIE_MVP, COMPONENTE_MVP } from '@/types/database'
-import type { QuestionType } from '@/types/questionTypes'
-import { QUESTION_TYPE_LABELS } from '@/types/questionTypes'
+import { mergeLegacyQuestionImage } from '@/lib/richTextImages'
+import { QUESTION_TYPE_LABELS, type QuestionType } from '@/types/questionTypes'
 
 export type BuilderQuestionSource = 'bank' | 'inline'
 
@@ -146,9 +146,9 @@ export function questionToBuilder(q: {
     source: 'bank',
     questionType: q.question_type || 'multipla_escolha',
     title: q.title,
-    enunciado: q.enunciado,
+    enunciado: mergeLegacyQuestionImage(q.enunciado, q.image_url),
     description: q.subtitle || undefined,
-    imageUrl: q.image_url || null,
+    imageUrl: null,
     youtubeUrl: q.youtube_url || null,
     createdBy: q.created_by || null,
     pointValue: Number(q.point_value ?? 1),

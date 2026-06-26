@@ -1,516 +1,517 @@
+import type { ReactNode } from 'react'
+import { AlertTriangle, Brain, LineChart, Target, TrendingUp, type LucideIcon } from 'lucide-react'
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
 import {
   PERFORMANCE_LEVEL_COLORS,
   PERFORMANCE_LEVEL_LABELS,
   type AreaPerformanceRow,
-  type PerformanceBreakdownItem,
   type RecoveryReportData,
 } from '@/lib/recoveryReport'
+import {
+  buildReportComparativo,
+  buildReportKpiCards,
+  buildReportMetaFields,
+  reportAreaChartTitle,
+  reportBnccAreaRows,
+  reportBnccRows,
+  reportKindSubtitle,
+  reportPageTitle,
+  reportShowsSection,
+} from '@/lib/recoveryReportLayout'
 
 interface RecoveryReportDocumentProps {
   data: RecoveryReportData
 }
 
-function DonutChart({ percentage, breakdown }: { percentage: number; breakdown: PerformanceBreakdownItem[] }) {
-  const size = 140
-  const stroke = 18
-  const radius = (size - stroke) / 2
-  const circumference = 2 * Math.PI * radius
-  let offset = 0
+const PURPLE = '#7C3AED'
+const BAR_PALETTE = ['#7C3AED', '#3b82f6', '#10b981', '#f59e0b', '#14b8a6', '#6366f1']
+const TRACK = '#f1f5f9'
 
-  const segments = breakdown.filter((b) => b.count > 0)
-
+function BiCard({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
-    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="#e5e7eb"
-          strokeWidth={stroke}
-        />
-        {segments.map((seg) => {
-          const segLen = (seg.percentage / 100) * circumference
-          const dash = `${segLen} ${circumference - segLen}`
-          const el = (
-            <circle
-              key={seg.level}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={PERFORMANCE_LEVEL_COLORS[seg.level]}
-              strokeWidth={stroke}
-              strokeDasharray={dash}
-              strokeDashoffset={-offset}
-              strokeLinecap="butt"
-            />
-          )
-          offset += segLen
-          return el
-        })}
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        <span className="text-3xl font-bold text-gray-800">{percentage}%</span>
-        <span className="text-[10px] text-gray-500 uppercase tracking-wide">Desempenho</span>
+    <section className="h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-sm font-bold text-slate-900">{title}</h2>
+      {subtitle ? <p className="mb-3.5 mt-1 text-[11px] leading-relaxed text-slate-500">{subtitle}</p> : <div className="mb-3.5" />}
+      {children}
+    </section>
+  )
+}
+
+function kpiIcon(label: string): LucideIcon {
+  const l = label.toLowerCase()
+  if (l.includes('desempenho')) return Target
+  if (l.includes('tri')) return LineChart
+  if (l.includes('crític')) return AlertTriangle
+  if (l.includes('competên')) return Brain
+  return TrendingUp
+}
+
+function BarRow({ label, percentage, color, labelWidth = 120 }: { label: string; percentage: number; color: string; labelWidth?: number }) {
+  return (
+    <div className="mb-3 flex items-center gap-2.5">
+      <span className="shrink-0 text-right text-[10px] text-slate-600" style={{ width: labelWidth }}>
+        {label.length > 26 ? `${label.slice(0, 24)}…` : label}
+      </span>
+      <div className="h-3.5 flex-1 overflow-hidden rounded-full" style={{ background: TRACK }}>
+        <div className="h-full rounded-full" style={{ width: `${Math.max(2, percentage)}%`, background: color }} />
       </div>
+      <span className="w-9 text-right text-[11px] font-bold text-slate-900">{percentage}%</span>
     </div>
   )
 }
 
-function ProgressBar({ percentage, level }: { percentage: number; level: AreaPerformanceRow['level'] }) {
+function PriorityBadge({ priority }: { priority: 'alta' | 'media' | 'baixa' }) {
+  const styles = {
+    alta: 'text-red-600 bg-red-50',
+    media: 'text-amber-600 bg-amber-50',
+    baixa: 'text-emerald-600 bg-emerald-50',
+  }[priority]
+  const label = { alta: 'Alta', media: 'Média', baixa: 'Baixa' }[priority]
+  return <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${styles}`}>{label}</span>
+}
+
+function CompetencyTable({ title, rows, accent, headerLabel }: { title: string; rows: AreaPerformanceRow[]; accent: string; headerLabel: string }) {
+  if (rows.length === 0) return null
   return (
-    <div className="h-2 rounded-full bg-gray-100 overflow-hidden flex-1 min-w-[80px]">
-      <div
-        className="h-full rounded-full"
-        style={{ width: `${Math.min(100, percentage)}%`, backgroundColor: PERFORMANCE_LEVEL_COLORS[level] }}
-      />
-    </div>
+    <BiCard title={title}>
+      <table className="w-full text-[10px]">
+        <thead>
+          <tr className="text-slate-500">
+            <th className="w-14 px-2 py-1 text-left font-semibold">Código</th>
+            <th className="px-2 py-1 text-left font-semibold">{headerLabel}</th>
+            <th className="w-28 px-2 py-1 text-left font-semibold">Desempenho</th>
+            <th className="w-24 px-2 py-1 text-left font-semibold">Situação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 10).map((row, i) => (
+            <tr key={i} className={i % 2 ? 'bg-slate-50' : ''}>
+              <td className="px-2 py-2 font-bold" style={{ color: accent }}>{row.label.split(/[\s—-]/)[0] || '—'}</td>
+              <td className="px-2 py-2 text-slate-700">{row.label}</td>
+              <td className="px-2 py-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: TRACK }}>
+                    <div className="h-full rounded-full" style={{ width: `${row.percentage}%`, background: accent }} />
+                  </div>
+                  <span className="font-bold text-slate-900">{row.percentage}%</span>
+                </div>
+              </td>
+              <td className="px-2 py-2 text-[9px] font-semibold" style={{ color: PERFORMANCE_LEVEL_COLORS[row.level] }}>
+                {PERFORMANCE_LEVEL_LABELS[row.level]}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </BiCard>
   )
 }
 
-function LegendDot({ level }: { level: AreaPerformanceRow['level'] }) {
+function EvolutionChart({ data }: { data: RecoveryReportData }) {
+  const points = data.evolutionSeries ?? []
+  if (points.length < 2) return null
+  const w = 240
+  const h = 120
+  const padX = 24
+  const padY = 16
+  const max = Math.max(...points.map((p) => p.value), 100)
+  const min = Math.min(...points.map((p) => p.value), 0)
+  const range = max - min || 1
+  const stepX = (w - padX * 2) / (points.length - 1)
+  const coords = points.map((p, i) => {
+    const x = padX + i * stepX
+    const y = padY + (1 - (p.value - min) / range) * (h - padY * 2)
+    return { x, y, ...p }
+  })
+  const line = coords.map((c) => `${c.x},${c.y}`).join(' ')
+  const delta = data.evolutionDelta
   return (
-    <span
-      className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-      style={{ backgroundColor: PERFORMANCE_LEVEL_COLORS[level] }}
-    />
-  )
-}
-
-function MetaField({ label, value }: { label: string; value?: string }) {
-  if (!value) return null
-  return (
-    <div className="text-right">
-      <p className="text-[10px] text-purple-200 uppercase tracking-wide">{label}</p>
-      <p className="text-xs font-medium text-white">{value}</p>
-    </div>
+    <BiCard
+      title="Evolução do Desempenho"
+      subtitle={delta != null ? `Variação no período: ${delta > 0 ? '+' : ''}${delta}%` : undefined}
+    >
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ maxWidth: w }}>
+        <polyline fill="none" stroke={PURPLE} strokeWidth={2.5} points={line} />
+        {coords.map((c, i) => (
+          <g key={i}>
+            <circle cx={c.x} cy={c.y} r={3.5} fill="#ffffff" stroke={PURPLE} strokeWidth={2} />
+            <text x={c.x} y={c.y - 8} textAnchor="middle" fontSize={9} fontWeight={700} fill="#0f172a">
+              {c.value}%
+            </text>
+            <text x={c.x} y={h - 2} textAnchor="middle" fontSize={8} fill="#64748b">
+              {c.label}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </BiCard>
   )
 }
 
 export function RecoveryReportDocument({ data }: RecoveryReportDocumentProps) {
-  const subtitle =
-    data.kind === 'student'
-      ? 'Relatório Individual do Aluno'
-      : data.kind === 'form'
-        ? 'Relatório do Formulário'
-        : data.kind === 'dashboard'
-          ? 'Relatório Geral — Dashboard Consolidado'
-          : 'Análise por Habilidades, TRI e Bloom'
-
-  const areaTableTitle =
-    data.kind === 'student'
-      ? 'Desempenho por Formulário'
-      : data.kind === 'form'
-        ? 'Desempenho por Habilidade BNCC'
-        : data.kind === 'dashboard'
-          ? 'Desempenho por Formulário'
-          : 'Desempenho por Habilidade BNCC / SAEB'
+  const kind = data.kind
+  const show = (s: Parameters<typeof reportShowsSection>[1]) => reportShowsSection(kind, s)
+  const metaFields = buildReportMetaFields(data)
+  const kpis = buildReportKpiCards(data)
+  const comparativo = buildReportComparativo(data)
+  const bnccRows = reportBnccRows(data)
+  const bnccAreaRows = reportBnccAreaRows(data)
 
   return (
     <div
       id="recovery-report-document"
-      className="bg-white text-gray-800 font-sans"
-      style={{ width: 794, minHeight: 1123 }}
+      className="font-sans text-slate-800"
+      style={{ width: 794, minHeight: 1123, background: '#f1f5f9' }}
     >
-      {/* Header */}
-      <div
-        className="px-8 py-6 text-white"
-        style={{ background: 'linear-gradient(to right, #7e22ce, #9333ea, #4f46e5)' }}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-lg font-bold">
-              G
-            </div>
-            <div>
-              <p className="text-sm font-semibold opacity-90">{APP_NAME}</p>
-              <p className="text-[10px] opacity-70">{APP_TAGLINE}</p>
-            </div>
+      <div style={{ height: 4, background: 'linear-gradient(90deg,#6d28d9,#7C3AED,#4f46e5)' }} />
+      <div className="border-b border-slate-200 bg-white px-6 pb-4 pt-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] text-slate-400">{APP_NAME} · {APP_TAGLINE}</p>
+            <h1 className="mt-1 text-xl font-bold text-slate-900">{reportPageTitle(kind)}</h1>
+            <p className="mt-1.5 text-[11px] text-slate-500">{reportKindSubtitle(kind)}</p>
           </div>
-          <div className="flex gap-6 flex-wrap justify-end">
-            <MetaField label="Data do relatório" value={data.reportDate} />
-            {data.studentName && <MetaField label="Aluno(a)" value={data.studentName} />}
-            {data.formTitle && <MetaField label="Formulário" value={data.formTitle} />}
-            <MetaField label="Turma / Série" value={data.turma} />
-            <MetaField label="Escola" value={data.escola} />
+          <div
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-lg font-extrabold text-white"
+            style={{ background: 'linear-gradient(135deg,#7C3AED,#4f46e5)' }}
+          >
+            G
           </div>
         </div>
-        <div className="mt-5">
-          <h1 className="text-2xl font-bold tracking-tight">RELATÓRIO</h1>
-          <p className="text-purple-100 text-sm mt-0.5">{subtitle}</p>
+        <div className="flex flex-wrap gap-2.5">
+          {metaFields.map((f) => (
+            <div key={f.label} className="min-w-[140px] flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+              <p className="text-[9px] uppercase tracking-wide text-slate-400">{f.label}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-900">{f.value}</p>
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-[220px] shrink-0 border-r border-gray-100 bg-gray-50/80 p-5 space-y-5">
-          <section>
-            <h2 className="text-[11px] font-bold uppercase tracking-wider text-purple-700 mb-3">
-              Resumo
-            </h2>
-            <dl className="space-y-2 text-xs">
-              {data.studentName && (
-                <div>
-                  <dt className="text-gray-400">Nome</dt>
-                  <dd className="font-medium text-gray-800">{data.studentName}</dd>
-                </div>
-              )}
-              {data.studentEmail && (
-                <div>
-                  <dt className="text-gray-400">E-mail</dt>
-                  <dd className="font-medium text-gray-800 break-all">{data.studentEmail}</dd>
-                </div>
-              )}
-              {data.formTitle && (
-                <div>
-                  <dt className="text-gray-400">Formulário</dt>
-                  <dd className="font-medium text-gray-800">{data.formTitle}</dd>
-                </div>
-              )}
-              {data.turma && (
-                <div>
-                  <dt className="text-gray-400">Turma</dt>
-                  <dd className="font-medium text-gray-800">{data.turma}</dd>
-                </div>
-              )}
-              {data.periodo && (
-                <div>
-                  <dt className="text-gray-400">Período analisado</dt>
-                  <dd className="font-medium text-gray-800">{data.periodo}</dd>
-                </div>
-              )}
-              {data.averageTheta != null && (
-                <div>
-                  <dt className="text-gray-400">TRI médio (θ)</dt>
-                  <dd className="font-medium text-gray-800">{data.averageTheta.toFixed(2)}</dd>
-                </div>
-              )}
-              {data.summaryMetrics?.map((m) => (
-                <div key={m.label}>
-                  <dt className="text-gray-400">{m.label}</dt>
-                  <dd className="font-medium text-gray-800">{m.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-
-          <section>
-            <h2 className="text-[11px] font-bold uppercase tracking-wider text-purple-700 mb-3">
-              Destaques
-            </h2>
+      <div className="space-y-4 px-5 py-5">
+        {show('highlights') && data.highlights.length > 0 && (
+          <BiCard title="Resumo" subtitle="Principais indicadores do recorte analisado">
             <ul className="space-y-2">
-              {data.highlights.map((h, i) => (
-                <li key={i} className="flex gap-2 text-[11px] text-gray-600 leading-snug">
-                  <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5">
-                    {i + 1}
-                  </span>
-                  {h}
+              {data.highlights.map((item, i) => (
+                <li key={i} className="flex gap-2 text-[11px] text-slate-700">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500" />
+                  {item}
                 </li>
               ))}
             </ul>
-          </section>
+          </BiCard>
+        )}
 
-          <section>
-            <h2 className="text-[11px] font-bold uppercase tracking-wider text-purple-700 mb-3">
-              Legenda de Desempenho
-            </h2>
-            <ul className="space-y-1.5">
-              {(Object.keys(PERFORMANCE_LEVEL_LABELS) as Array<keyof typeof PERFORMANCE_LEVEL_LABELS>).map(
-                (level) => (
-                  <li key={level} className="flex items-center gap-2 text-[10px] text-gray-600">
-                    <LegendDot level={level} />
-                    {PERFORMANCE_LEVEL_LABELS[level]}
-                  </li>
-                ),
-              )}
-            </ul>
-          </section>
-        </aside>
+        {show('kpis') && (
+          <div className="flex flex-wrap gap-4">
+            {kpis.map((kpi) => {
+              const Icon = kpiIcon(kpi.label)
+              return (
+                <div key={kpi.label} className="min-w-[130px] flex-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500">{kpi.label}</p>
+                      <p className="mt-2 text-3xl font-bold leading-none text-slate-900">{kpi.value}</p>
+                      <p className="mt-1 text-[11px] text-slate-400">{kpi.subtitle}</p>
+                    </div>
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: `${kpi.color}1f` }}>
+                      <Icon size={18} style={{ color: kpi.color }} />
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
-        {/* Main content */}
-        <main className="flex-1 p-6 space-y-6">
-          {/* Overview */}
-          <section className="rounded-xl border border-gray-100 p-5">
-            <h2 className="text-sm font-bold text-gray-800 mb-4">Visão Geral do Desempenho</h2>
-            <div className="flex items-center gap-6 flex-wrap">
-              <DonutChart percentage={data.overallPercentage} breakdown={data.performanceBreakdown} />
-              <div className="flex-1 min-w-[180px]">
-                <p className="text-xs text-gray-500 leading-relaxed mb-3">
-                  O percentual representa o desempenho médio nas avaliações analisadas, considerando
-                  acertos por habilidade e nível de proficiência.
+        {show('studentTrail') && data.recommendedTrails && data.recommendedTrails.length > 0 && (
+          <BiCard title="Trilha de Recomposição Recomendada" subtitle="Trilha indicada com base no desempenho do aluno.">
+            {data.recommendedTrails.map((row, i) => (
+              <div key={i} className="mb-2.5 rounded-xl border-2 p-3.5 last:mb-0" style={{ borderColor: PURPLE, background: '#faf5ff' }}>
+                <p className="text-[10px] text-slate-500">
+                  Formulário: <strong className="text-slate-700">{row.formTitle || '—'}</strong> · TCT:{' '}
+                  <strong style={{ color: PURPLE }}>{row.studentPercent ?? '—'}%</strong>
                 </p>
-                <ul className="space-y-1">
-                  {data.performanceBreakdown
-                    .filter((b) => b.count > 0)
-                    .map((b) => (
-                      <li key={b.level} className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-2 text-gray-600">
-                          <LegendDot level={b.level} />
-                          {b.label}
-                        </span>
-                        <span className="font-semibold text-gray-800">{b.percentage}%</span>
+                <p className="mt-1 text-base font-bold text-slate-900">{row.trailTitle}</p>
+                <p className="text-[10px] text-slate-500">Faixa: {row.percentRange || '—'}</p>
+                {row.pedagogicalObjectives && <p className="mt-2 text-[10px] text-slate-700"><strong>Objetivos:</strong> {row.pedagogicalObjectives}</p>}
+                {row.teacherNotes && <p className="mt-1 text-[10px] text-slate-700"><strong>Orientações:</strong> {row.teacherNotes}</p>}
+              </div>
+            ))}
+          </BiCard>
+        )}
+
+        {(show('areaBars') || show('nivelDonut')) && (
+          <div className="flex flex-wrap gap-4">
+            {show('areaBars') && data.areaRows.length > 0 && (
+              <div className="min-w-[280px] flex-1">
+                <BiCard
+                  title={reportAreaChartTitle(kind)}
+                  subtitle={
+                    kind === 'student'
+                      ? 'Classificação: alto (≥70%), médio (40–69%), baixo (<40%)'
+                      : kind === 'form' && data.areaRows.length > 1
+                        ? 'Comparativo entre formulários do período'
+                        : undefined
+                  }
+                >
+                  {data.areaRows.slice(0, 8).map((row, i) => (
+                    <BarRow
+                      key={i}
+                      label={row.detail ? `${row.label} · ${row.detail}` : row.label}
+                      percentage={row.percentage}
+                      color={BAR_PALETTE[i % BAR_PALETTE.length]}
+                    />
+                  ))}
+                </BiCard>
+              </div>
+            )}
+            {show('nivelDonut') && data.nivelDistribution && data.nivelDistribution.length > 0 && (
+              <div className="min-w-[280px] flex-1">
+                <BiCard title="Distribuição dos Alunos por Nível">
+                  <div className="flex items-center gap-4">
+                    <p className="text-2xl font-bold text-slate-900">
+                      {data.nivelDistribution.reduce((s, x) => s + x.count, 0)}
+                      <span className="block text-[8px] font-normal text-slate-500">respostas</span>
+                    </p>
+                    <ul className="flex-1 space-y-1.5 text-[10px]">
+                      {data.nivelDistribution.map((seg) => (
+                        <li key={seg.label} className="flex justify-between text-slate-600">
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full" style={{ background: seg.color }} />
+                            {seg.label}
+                          </span>
+                          <strong className="text-slate-900">{seg.percentage}%</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </BiCard>
+              </div>
+            )}
+          </div>
+        )}
+
+        {show('bnccArea') && bnccAreaRows.length > 0 && (
+          <BiCard
+            title="Desempenho por Área do Conhecimento (BNCC)"
+            subtitle="Média de acerto das habilidades BNCC agrupadas por componente curricular."
+          >
+            {bnccAreaRows.map((row, i) => (
+              <BarRow
+                key={row.label}
+                label={`${row.label} (${row.count})`}
+                percentage={row.percentage}
+                color={BAR_PALETTE[i % BAR_PALETTE.length]}
+                labelWidth={150}
+              />
+            ))}
+          </BiCard>
+        )}
+
+        {(show('strongSkills') || show('bloom') || show('criticalSkills') || show('comparativo')) && (
+          <div className="flex flex-wrap gap-4">
+            {show('strongSkills') && (data.strongSkills?.length ?? 0) > 0 && (
+              <div className="min-w-[200px] flex-1">
+                <BiCard title="Desempenho Positivo" subtitle="Habilidades com bom desempenho (≥70%)">
+                  <ul className="space-y-1.5 text-[10px] text-slate-700">
+                    {data.strongSkills!.map((skill) => (
+                      <li key={skill} className="flex items-start gap-2">
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                        {skill}
                       </li>
                     ))}
-                </ul>
+                  </ul>
+                </BiCard>
               </div>
-            </div>
-          </section>
+            )}
+            {show('bloom') && data.bloomRows && data.bloomRows.length > 0 && (
+              <div className="min-w-[200px] flex-1">
+                <BiCard title="Desempenho por Taxonomia de Bloom">
+                  {data.bloomRows.map((row) => (
+                    <BarRow key={row.label} label={row.label} percentage={row.percentage} color={PURPLE} labelWidth={88} />
+                  ))}
+                </BiCard>
+              </div>
+            )}
+            {show('criticalSkills') && (
+              <div className="min-w-[200px] flex-1">
+                <BiCard title="Habilidades Críticas" subtitle="Déficits de aprendizagem (<60%)">
+                  {data.criticalSkillsTable && data.criticalSkillsTable.length > 0 ? (
+                    <table className="w-full text-[10px]">
+                      <tbody>
+                        {data.criticalSkillsTable.map((row, i) => (
+                          <tr key={i} className={i % 2 ? 'bg-slate-50' : ''}>
+                            <td className="px-1 py-1.5 font-semibold" style={{ color: PURPLE }}>{row.code}</td>
+                            <td className="px-1 py-1.5 text-slate-600">{row.description.slice(0, 40)}…</td>
+                            <td className="px-1 py-1.5 font-semibold text-slate-900">{row.percentage}%</td>
+                            <td className="px-1 py-1.5"><PriorityBadge priority={row.priority} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="text-[11px] text-slate-500">Nenhuma habilidade crítica.</p>
+                  )}
+                </BiCard>
+              </div>
+            )}
+            {show('comparativo') && comparativo.length > 0 && (
+              <div className="min-w-[200px] flex-1">
+                <BiCard title="Comparativo" subtitle={`${comparativo[0]?.scopeLabel} vs ${comparativo[0]?.referenceLabel}`}>
+                  <div className="space-y-3">
+                    {comparativo.map((row) => {
+                      const maxVal = Math.max(row.scopeValue, row.referenceValue, 1)
+                      const unit = row.label.includes('TRI') ? '' : '%'
+                      return (
+                        <div key={row.label}>
+                          <p className="mb-1 text-[10px] font-semibold text-slate-900">{row.label}</p>
+                          <div className="mb-1 flex items-center gap-2 text-[9px]">
+                            <span className="w-10 text-slate-500">{row.scopeLabel}</span>
+                            <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: TRACK }}>
+                              <div className="h-full rounded-full" style={{ width: `${Math.min(100, (row.scopeValue / maxVal) * 100)}%`, background: PURPLE }} />
+                            </div>
+                            <span className="font-semibold text-slate-900">{row.scopeValue}{unit}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[9px]">
+                            <span className="w-10 text-slate-500">{row.referenceLabel}</span>
+                            <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: TRACK }}>
+                              <div className="h-full rounded-full bg-slate-400" style={{ width: `${Math.min(100, (row.referenceValue / maxVal) * 100)}%` }} />
+                            </div>
+                            <span className="font-semibold text-slate-500">{row.referenceValue}{unit}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </BiCard>
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* Area performance */}
-          <section className="rounded-xl border border-gray-100 overflow-hidden">
-            <h2 className="text-sm font-bold text-gray-800 px-5 pt-5 pb-3">
-              {areaTableTitle}
-            </h2>
-            <table className="w-full text-xs">
+        {(show('bncc') || show('saeb') || show('saebErrors')) && (
+          <div className="flex flex-wrap gap-4">
+            {show('bncc') && bnccRows.length > 0 && (
+              <div className="min-w-[200px] flex-1"><CompetencyTable title="Desempenho por Competência (BNCC)" rows={bnccRows} accent={PURPLE} headerLabel="Habilidade BNCC" /></div>
+            )}
+            {show('saeb') && data.saebRows && data.saebRows.length > 0 && (
+              <div className="min-w-[200px] flex-1"><CompetencyTable title="Desempenho por Descritor (SAEB)" rows={data.saebRows} accent="#3b82f6" headerLabel="Descritor SAEB" /></div>
+            )}
+            {show('saebErrors') && data.errorDescriptors && data.errorDescriptors.length > 0 && (
+              <div className="min-w-[200px] flex-1">
+                <BiCard title="Descritores com Maior Índice de Erro">
+                  <table className="w-full text-[10px]">
+                    <tbody>
+                      {data.errorDescriptors.map((row, i) => (
+                        <tr key={i} className={i % 2 ? 'bg-slate-50' : ''}>
+                          <td className="px-1 py-2 font-semibold text-red-600">{row.code}</td>
+                          <td className="px-1 py-2 text-slate-600">{row.description}</td>
+                          <td className="px-1 py-2 font-bold text-red-600">{row.errorRate}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </BiCard>
+              </div>
+            )}
+          </div>
+        )}
+
+        {show('tri') && data.triSummary && data.triSummary.length > 0 && (
+          <BiCard title="Proficiência TRI (θ) por Avaliação">
+            <table className="w-full text-[10px]">
               <thead>
-                <tr className="bg-purple-50 text-purple-800">
-                  <th className="text-left py-2 px-5 font-semibold">Área / Competência</th>
-                  <th className="text-left py-2 px-3 font-semibold w-[140px]">Desempenho</th>
-                  <th className="text-left py-2 px-5 font-semibold w-[100px]">Situação</th>
+                <tr className="text-slate-500">
+                  <th className="px-2 py-1.5 text-left font-semibold">Avaliação</th>
+                  <th className="px-2 py-1.5 font-semibold">θ</th>
+                  <th className="px-2 py-1.5 font-semibold">TCT</th>
+                  <th className="px-2 py-1.5 font-semibold">N</th>
                 </tr>
               </thead>
               <tbody>
-                {data.areaRows.map((row, i) => (
-                  <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                    <td className="py-2.5 px-5">
-                      <p className="font-medium text-gray-800">{row.label}</p>
-                      {row.detail && <p className="text-[10px] text-gray-400 mt-0.5">{row.detail}</p>}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div className="flex items-center gap-2">
-                        <ProgressBar percentage={row.percentage} level={row.level} />
-                        <span className="font-semibold text-gray-700 w-8">{row.percentage}%</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-5">
-                      <span
-                        className="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full"
-                        style={{
-                          color: PERFORMANCE_LEVEL_COLORS[row.level],
-                          backgroundColor: `${PERFORMANCE_LEVEL_COLORS[row.level]}18`,
-                        }}
-                      >
-                        <LegendDot level={row.level} />
-                        {PERFORMANCE_LEVEL_LABELS[row.level]}
-                      </span>
-                    </td>
+                {data.triSummary.map((row, i) => (
+                  <tr key={i} className={i % 2 ? 'bg-slate-50' : ''}>
+                    <td className="px-2 py-2 text-slate-700">{row.label}</td>
+                    <td className="px-2 py-2 font-bold" style={{ color: PURPLE }}>{row.averageTheta?.toFixed(2) ?? '—'}</td>
+                    <td className="px-2 py-2 text-slate-900">{row.averageTct}%</td>
+                    <td className="px-2 py-2 text-slate-900">{row.totalResponses}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </section>
+          </BiCard>
+        )}
 
-          {/* Bloom section for skills/form/student */}
-          {data.kind === 'dashboard' && data.criticalSkillRows && data.criticalSkillRows.length > 0 && (
-            <section className="rounded-xl border border-gray-100 overflow-hidden">
-              <h2 className="text-sm font-bold text-gray-800 px-5 pt-5 pb-3">
-                Habilidades com maior déficit (BNCC / SAEB)
-              </h2>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-amber-50 text-amber-900">
-                    <th className="text-left py-2 px-5 font-semibold">Habilidade</th>
-                    <th className="text-left py-2 px-3 font-semibold w-[140px]">Desempenho</th>
-                    <th className="text-left py-2 px-5 font-semibold w-[100px]">Situação</th>
+        {show('trailRanking') && data.trailRanking && data.trailRanking.length > 0 && (
+          <BiCard title="Ranking de Trilhas em Uso" subtitle="Ordenado por número de alunos.">
+            <table className="w-full text-[10px]">
+              <thead>
+                <tr className="text-slate-500">
+                  <th className="w-8 px-2 py-1.5 font-semibold">#</th>
+                  <th className="px-2 py-1.5 text-left font-semibold">Trilha</th>
+                  <th className="px-2 py-1.5 font-semibold">Faixa</th>
+                  <th className="px-2 py-1.5 font-semibold">Alunos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.trailRanking.map((row) => (
+                  <tr key={row.rank}>
+                    <td className="px-2 py-2 font-bold" style={{ color: PURPLE }}>{row.rank}</td>
+                    <td className="px-2 py-2 font-medium text-slate-900">{row.title}</td>
+                    <td className="px-2 py-2 text-slate-500">{row.percentRange}</td>
+                    <td className="px-2 py-2 font-semibold text-slate-900">{row.studentCount}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {data.criticalSkillRows.map((row, i) => (
-                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                      <td className="py-2.5 px-5 font-medium text-gray-800">{row.label}</td>
-                      <td className="py-2.5 px-3">
-                        <div className="flex items-center gap-2">
-                          <ProgressBar percentage={row.percentage} level={row.level} />
-                          <span className="font-semibold text-gray-700 w-8">{row.percentage}%</span>
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-5">
-                        <span className="text-[10px] font-medium text-gray-600">
-                          {PERFORMANCE_LEVEL_LABELS[row.level]}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
-
-          {/* Bloom section for skills/form/student */}
-          {data.bloomRows && data.bloomRows.length > 0 && (
-            <section className="rounded-xl border border-gray-100 overflow-hidden">
-              <h2 className="text-sm font-bold text-gray-800 px-5 pt-5 pb-3">Desempenho por Nível Bloom</h2>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-indigo-50 text-indigo-800">
-                    <th className="text-left py-2 px-5 font-semibold">Nível cognitivo</th>
-                    <th className="text-left py-2 px-3 font-semibold w-[140px]">Desempenho</th>
-                    <th className="text-left py-2 px-5 font-semibold w-[100px]">Situação</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.bloomRows.map((row, i) => (
-                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                      <td className="py-2.5 px-5 font-medium text-gray-800">{row.label}</td>
-                      <td className="py-2.5 px-3">
-                        <div className="flex items-center gap-2">
-                          <ProgressBar percentage={row.percentage} level={row.level} />
-                          <span className="font-semibold text-gray-700 w-8">{row.percentage}%</span>
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-5">
-                        <span className="text-[10px] font-medium text-gray-600">
-                          {PERFORMANCE_LEVEL_LABELS[row.level]}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
-
-          {/* TRI summary for skills report */}
-          {data.triSummary && data.triSummary.length > 0 && (
-            <section className="rounded-xl border border-gray-100 overflow-hidden">
-              <h2 className="text-sm font-bold text-gray-800 px-5 pt-5 pb-3">Proficiência TRI (θ) por Formulário</h2>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-violet-50 text-violet-800">
-                    <th className="text-left py-2 px-5 font-semibold">Formulário</th>
-                    <th className="text-left py-2 px-3 font-semibold">θ médio</th>
-                    <th className="text-left py-2 px-3 font-semibold">TCT médio</th>
-                    <th className="text-left py-2 px-5 font-semibold">Respostas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.triSummary.map((row, i) => (
-                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                      <td className="py-2.5 px-5 font-medium text-gray-800">{row.label}</td>
-                      <td className="py-2.5 px-3 font-semibold text-purple-700">
-                        {row.averageTheta != null ? row.averageTheta.toFixed(2) : '—'}
-                      </td>
-                      <td className="py-2.5 px-3">{row.averageTct}%</td>
-                      <td className="py-2.5 px-5">{row.totalResponses}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
-
-          {data.recommendedTrails && data.recommendedTrails.length > 0 && (
-            <section className="rounded-xl border border-gray-100 overflow-hidden">
-              <h2 className="text-sm font-bold text-gray-800 px-5 pt-5 pb-1">
-                Trilhas de recomposição recomendadas
-              </h2>
-              <p className="text-[11px] text-gray-500 px-5 pb-3">
-                Atribuídas automaticamente com base no percentual de acerto de cada avaliação.
-              </p>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-teal-50 text-teal-900">
-                    {data.kind === 'form' && (
-                      <th className="text-left py-2 px-5 font-semibold">Aluno</th>
-                    )}
-                    {data.kind === 'student' && (
-                      <th className="text-left py-2 px-5 font-semibold">Formulário</th>
-                    )}
-                    <th className="text-left py-2 px-3 font-semibold w-16">TCT</th>
-                    <th className="text-left py-2 px-3 font-semibold">Faixa</th>
-                    <th className="text-left py-2 px-5 font-semibold">Trilha recomendada</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recommendedTrails.map((row, i) => (
-                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                      {data.kind === 'form' && (
-                        <td className="py-2.5 px-5">
-                          <p className="font-medium text-gray-800">{row.studentName}</p>
-                          {row.studentEmail && (
-                            <p className="text-[10px] text-gray-400">{row.studentEmail}</p>
-                          )}
-                        </td>
-                      )}
-                      {data.kind === 'student' && (
-                        <td className="py-2.5 px-5 font-medium text-gray-800">{row.formTitle}</td>
-                      )}
-                      <td className="py-2.5 px-3 font-semibold text-gray-700">
-                        {row.studentPercent != null ? `${row.studentPercent}%` : '—'}
-                      </td>
-                      <td className="py-2.5 px-3 text-gray-600">{row.percentRange || '—'}</td>
-                      <td className="py-2.5 px-5">
-                        <p className="font-medium text-teal-800">{row.trailTitle}</p>
-                        {row.pedagogicalObjectives && (
-                          <p className="text-[10px] text-gray-500 mt-1">{row.pedagogicalObjectives}</p>
-                        )}
-                        {row.teacherNotes && (
-                          <p className="text-[10px] text-gray-500 mt-1">{row.teacherNotes}</p>
-                        )}
-                        {(row.pedagogicalPdfUrl || row.pedagogicalLinkUrl) && (
-                          <p className="text-[10px] text-teal-700 mt-1">
-                            {row.pedagogicalPdfUrl && 'PDF pedagógico disponível'}
-                            {row.pedagogicalPdfUrl && row.pedagogicalLinkUrl && ' · '}
-                            {row.pedagogicalLinkUrl && 'Recursos online disponíveis'}
-                          </p>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
-
-          {/* Priority skills */}
-          <section className="grid grid-cols-2 gap-4">
-            <div className="rounded-xl border border-red-100 bg-red-50/30 p-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-red-700 mb-3">
-                Habilidades que precisam de mais apoio
-              </h3>
-              {data.weakSkills.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {data.weakSkills.map((s, i) => (
-                    <li key={i} className="flex gap-2 text-[11px] text-gray-700">
-                      <span className="text-red-400">•</span>
-                      {s}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-[11px] text-gray-500">Nenhuma habilidade crítica identificada.</p>
-              )}
-            </div>
-            <div className="rounded-xl border border-purple-100 bg-purple-50/30 p-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-purple-700 mb-3">
-                Próximos passos / Recomendações
-              </h3>
-              <ul className="space-y-1.5">
-                {data.recommendations.map((r, i) => (
-                  <li key={i} className="flex gap-2 text-[11px] text-gray-700">
-                    <span className="text-purple-400">•</span>
-                    {r}
-                  </li>
                 ))}
-              </ul>
-            </div>
-          </section>
-        </main>
+              </tbody>
+            </table>
+          </BiCard>
+        )}
+
+        {show('formTrails') && data.recommendedTrails && data.recommendedTrails.length > 0 && (
+          <BiCard title="Trilhas Atribuídas no Formulário">
+            {data.recommendedTrails.slice(0, 6).map((row, i) => (
+              <p key={i} className="mb-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-600 last:mb-0">
+                <strong className="text-slate-900">{row.studentName}</strong> · {row.studentPercent}% · {row.trailTitle}
+              </p>
+            ))}
+          </BiCard>
+        )}
+
+        {(show('evolution') || show('recommendations') || show('executiveSummary')) && (
+          <div className="flex flex-wrap gap-4">
+            {show('evolution') && (data.evolutionSeries?.length ?? 0) >= 2 && (
+              <div className="min-w-[200px] flex-1">
+                <EvolutionChart data={data} />
+              </div>
+            )}
+            {show('recommendations') && (data.recommendations?.length ?? 0) > 0 && (
+              <div className="min-w-[200px] flex-1">
+                <BiCard title="Recomendações">
+                  <ul className="space-y-2">
+                    {(data.recommendations ?? []).map((r, i) => (
+                      <li key={i} className="flex gap-2 text-[11px] text-slate-700">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-violet-100 text-[10px] font-bold text-violet-700">{i + 1}</span>
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                </BiCard>
+              </div>
+            )}
+            {show('executiveSummary') && data.executiveSummary && (
+              <div className="min-w-[200px] flex-1">
+                <BiCard title="Resumo Executivo">
+                  <p className="text-[11px] leading-relaxed text-slate-700">{data.executiveSummary}</p>
+                </BiCard>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Footer */}
-      <div className="border-t border-gray-100 px-8 py-4 bg-gray-50">
-        <p className="text-[11px] text-gray-500 text-center mb-3">
-          💡 Com foco e continuidade, o aluno pode avançar ainda mais nas habilidades trabalhadas.
-          Este relatório foi gerado automaticamente pela plataforma {APP_NAME}.
-        </p>
-        <div className="h-1 rounded-full" style={{ background: 'linear-gradient(to right, #9333ea, #6366f1)' }} />
-        <p className="text-[10px] text-center text-gray-400 mt-2">
-          {APP_NAME} · {APP_TAGLINE}
-        </p>
+      <div className="border-t border-slate-200 bg-white px-6 py-3.5 text-center">
+        <p className="text-[9px] text-slate-400">Relatório gerado automaticamente · {APP_NAME}</p>
       </div>
     </div>
   )

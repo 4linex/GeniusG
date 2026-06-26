@@ -10,6 +10,7 @@ interface QuestionTypePickerProps {
   onChange: (type: QuestionType) => void
   compact?: boolean
   className?: string
+  hideHeader?: boolean
   /** No builder: clique adiciona direto ao formulário (sem estado selecionado) */
   addOnClick?: boolean
 }
@@ -19,11 +20,12 @@ export function QuestionTypePicker({
   onChange,
   compact = false,
   className,
+  hideHeader = false,
   addOnClick = false,
 }: QuestionTypePickerProps) {
   return (
     <div className={cn('space-y-1.5', className)}>
-      {!compact && (
+      {!compact && !hideHeader && (
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
           Estilo da questão
         </p>

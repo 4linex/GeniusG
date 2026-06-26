@@ -1,6 +1,10 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { dedupeAlternativesByLetter } from '../_shared/questionAlternatives.ts'
+import {
+  getFormLinkAvailability,
+  getFormLinkAvailabilityError,
+} from '../_shared/formLinkAvailability.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,6 +36,8 @@ serve(async (req) => {
       .select(`
         id,
         form_id,
+        available_from,
+        available_until,
         form:forms(
           title,
           is_active,
@@ -50,6 +56,16 @@ serve(async (req) => {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
+    }
+
+    const availability = getFormLinkAvailability(link)
+    if (availability !== 'available') {
+      return new Response(
+        JSON.stringify({
+          error: getFormLinkAvailabilityError(link) || 'Formulário indisponível',
+        }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
     const form = link.form as {

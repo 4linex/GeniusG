@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/Button'
@@ -8,15 +8,18 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Select } from '@/components/ui/Select'
 import { DurationInput } from '@/components/ui/DurationInput'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
+import { CollapsibleSection } from '@/components/ui/CollapsibleSection'
 import { Card, CardHeader } from '@/components/ui/Card'
 import {
   ANO_SERIE_MVP,
   ANO_SERIE_OPTIONS,
-  BLOOM_LEVELS,
   COMPONENTE_MVP,
   COMPONENTE_OPTIONS,
   type QuestionAlternative,
 } from '@/types/database'
+import { ensureSkillBankFromQuestionFields } from '@/lib/skillBank'
+import { PedagogicalSkillFields } from '@/components/forms/PedagogicalSkillFields'
+import { mergeLegacyQuestionImage } from '@/lib/richTextImages'
 import { stripHtml } from '@/lib/richText'
 import { needsAlternatives, type QuestionType } from '@/types/questionTypes'
 import { QuestionTypePicker } from '@/components/forms/QuestionTypePicker'
@@ -24,7 +27,7 @@ import { QuestionPreviewModal } from '@/components/questions/QuestionPreview'
 import { AlternativeOptionsEditor } from '@/components/questions/AlternativeOptionsEditor'
 import { createEmptyInlineQuestion } from '@/components/forms/builder/types'
 import { formatDate } from '@/lib/utils'
-import { Upload, Eye, Lock } from 'lucide-react'
+import { Eye, Lock } from 'lucide-react'
 import { dedupeAlternativesByLetter } from '@/lib/questionAlternatives'
 import { getErrorMessage, syncQuestionAlternatives } from '@/lib/syncQuestionAlternatives'
 import { difficultyLevelSelectOptions, resolveQuestionPointValue } from '@/lib/difficultyLevels'
@@ -37,11 +40,32 @@ const DEFAULT_ALTERNATIVES: QuestionAlternative[] = [
   { letter: 'D', text: '', is_correct: false, order_index: 3 },
 ]
 
-export function QuestionFormPage() {
+export interface QuestionFormPageProps {
+  embedded?: boolean
+  fixedComponente?: string
+  returnPath?: string
+  onSaved?: () => void
+  onCancel?: () => void
+}
+
+export function QuestionFormPage({
+  embedded = false,
+  fixedComponente,
+  returnPath,
+  onSaved,
+  onCancel,
+}: QuestionFormPageProps = {}) {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { user, profile } = useAuth()
+  const location = useLocation()
   const isEditing = Boolean(id)
+  const resolvedReturnPath =
+    returnPath ||
+    (location.state as { returnPath?: string } | null)?.returnPath
+  const presetComponente =
+    fixedComponente ||
+    (location.state as { fixedComponente?: string } | null)?.fixedComponente
+  const { user, profile } = useAuth()
 
   const [questionType, setQuestionType] = useState<QuestionType>('multipla_escolha')
   const [title, setTitle] = useState('')
@@ -57,7 +81,6 @@ export function QuestionFormPage() {
   const [tempoMedio, setTempoMedio] = useState<number | null>(null)
   const [tipoTextoBase, setTipoTextoBase] = useState('')
   const [fonte, setFonte] = useState('')
-  const [imageUrl, setImageUrl] = useState('')
   const [creatorNotes, setCreatorNotes] = useState('')
   const [createdBy, setCreatedBy] = useState<string | null>(null)
   const [triCalibratedAt, setTriCalibratedAt] = useState<string | null>(null)
@@ -67,7 +90,6 @@ export function QuestionFormPage() {
   const [paramAcertoCaso, setParamAcertoCaso] = useState<number | null>(null)
   const [alternatives, setAlternatives] = useState<QuestionAlternative[]>(DEFAULT_ALTERNATIVES)
   const [loading, setLoading] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
 
@@ -79,10 +101,15 @@ export function QuestionFormPage() {
     profile?.role === 'root'
 
   const { levels: difficultyLevels } = useDifficultyLevels()
-
   const handleNivelDificuldadeChange = (value: string) => {
     setNivelDificuldade(value)
   }
+
+  useEffect(() => {
+    if (presetComponente) {
+      setComponenteCurricular(presetComponente)
+    }
+  }, [presetComponente])
 
   useEffect(() => {
     if (!id) return
@@ -96,7 +123,7 @@ export function QuestionFormPage() {
       if (question) {
         setQuestionType(question.question_type || 'multipla_escolha')
         setTitle(question.title)
-        setEnunciado(question.enunciado)
+        setEnunciado(mergeLegacyQuestionImage(question.enunciado, question.image_url))
         setCodigoItem(question.codigo_item || '')
         setComponenteCurricular(question.componente_curricular || COMPONENTE_MVP)
         setAnoSerie(question.ano_serie || ANO_SERIE_MVP)
@@ -108,7 +135,6 @@ export function QuestionFormPage() {
         setTempoMedio(question.tempo_medio_resolucao ?? null)
         setTipoTextoBase(question.tipo_texto_base || '')
         setFonte(question.fonte || '')
-        setImageUrl(question.image_url || '')
         setCreatedBy(question.created_by || null)
         setTriCalibratedAt(question.tri_calibrated_at || null)
         setTriResponseCount(question.tri_response_count ?? 0)
@@ -137,32 +163,6 @@ export function QuestionFormPage() {
     }
     load()
   }, [id, user, profile])
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    setUploading(true)
-    const ext = file.name.split('.').pop()
-    const path = `questions/${Date.now()}.${ext}`
-
-    const { error: uploadError } = await supabase.storage
-      .from('question-images')
-      .upload(path, file)
-
-    if (uploadError) {
-      setError('Erro ao fazer upload da imagem')
-      setUploading(false)
-      return
-    }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('question-images')
-      .getPublicUrl(path)
-
-    setImageUrl(publicUrl)
-    setUploading(false)
-  }
 
   const addAlternative = () => {
     const nextLetter = String.fromCharCode(65 + alternatives.length)
@@ -225,6 +225,18 @@ export function QuestionFormPage() {
 
     setLoading(true)
 
+    try {
+      await ensureSkillBankFromQuestionFields({
+        descritor_saeb: descritorSaeb,
+        habilidade_bncc: habilidadeBncc,
+        nivel_bloom: nivelBloom,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar banco de habilidades')
+      setLoading(false)
+      return
+    }
+
     const questionData: Record<string, unknown> = {
       title,
       enunciado,
@@ -241,7 +253,7 @@ export function QuestionFormPage() {
       tempo_medio_resolucao: tempoMedio,
       tipo_texto_base: tipoTextoBase || null,
       fonte: fonte || null,
-      image_url: imageUrl || null,
+      image_url: null,
       updated_at: new Date().toISOString(),
     }
 
@@ -275,7 +287,13 @@ export function QuestionFormPage() {
         await syncQuestionAlternatives(questionId!, alternatives)
       }
 
-      navigate('/admin/questoes')
+      if (embedded && onSaved) {
+        onSaved()
+      } else if (resolvedReturnPath) {
+        navigate(resolvedReturnPath)
+      } else {
+        navigate('/admin/questoes')
+      }
     } catch (err) {
       setError(getErrorMessage(err, 'Erro ao salvar questão'))
     } finally {
@@ -285,21 +303,103 @@ export function QuestionFormPage() {
 
   return (
     <div>
-      <CardHeader
-        title={isEditing ? 'Editar Questão' : 'Nova Questão'}
-        description="Cadastro modular — metadados completos para administração"
-        action={
+      {!embedded && (
+        <CardHeader
+          title={isEditing ? 'Editar Questão' : 'Nova Questão'}
+          description="Cadastro modular — metadados completos para administração"
+          action={
+            <Button type="button" variant="secondary" size="sm" onClick={() => setPreviewOpen(true)}>
+              <Eye size={16} />
+              Visualizar
+            </Button>
+          }
+        />
+      )}
+
+      {embedded && (
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Escrever nova questão</h2>
+            <p className="text-sm text-slate-400 mt-0.5">
+              Componente: <span className="text-slate-300">{presetComponente}</span>
+            </p>
+          </div>
           <Button type="button" variant="secondary" size="sm" onClick={() => setPreviewOpen(true)}>
             <Eye size={16} />
             Visualizar
           </Button>
-        }
-      />
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr] gap-6 items-start">
-          <Card className="xl:sticky xl:top-8">
-            <QuestionTypePicker value={questionType} onChange={handleTypeChange} />
+        <div className="grid grid-cols-1 xl:grid-cols-[300px_1fr] gap-6 items-start">
+          <Card className="xl:sticky xl:top-8 xl:self-start xl:max-h-[calc(100dvh-5.5rem)] xl:overflow-y-auto scrollbar-app !p-0 shrink-0">
+            <CollapsibleSection title="Estilo da questão" defaultOpen>
+              <QuestionTypePicker
+                hideHeader
+                compact
+                value={questionType}
+                onChange={handleTypeChange}
+              />
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Metadados pedagógicos" defaultOpen={false}>
+              <div className="space-y-4">
+                <Input
+                  label="Código do item"
+                  value={codigoItem}
+                  onChange={(e) => setCodigoItem(e.target.value)}
+                />
+                <Select
+                  label="Componente curricular"
+                  value={componenteCurricular}
+                  onChange={(e) => setComponenteCurricular(e.target.value)}
+                  options={COMPONENTE_OPTIONS}
+                  disabled={Boolean(presetComponente)}
+                />
+                <Textarea
+                  label="Conteúdo programático"
+                  value={conteudoProgramatico}
+                  onChange={(e) => setConteudoProgramatico(e.target.value)}
+                  className="min-h-[56px] max-h-[80px]"
+                  rows={2}
+                />
+                <Select
+                  label="Ano/Série"
+                  value={anoSerie}
+                  onChange={(e) => setAnoSerie(e.target.value)}
+                  options={ANO_SERIE_OPTIONS}
+                />
+                <PedagogicalSkillFields
+                  descritorSaeb={descritorSaeb}
+                  habilidadeBncc={habilidadeBncc}
+                  nivelBloom={nivelBloom}
+                  onDescritorSaebChange={setDescritorSaeb}
+                  onHabilidadeBnccChange={setHabilidadeBncc}
+                  onNivelBloomChange={setNivelBloom}
+                  bnccRequired
+                  bloomRequired
+                />
+                <Select
+                  label="Nível de dificuldade"
+                  value={nivelDificuldade}
+                  onChange={(e) => handleNivelDificuldadeChange(e.target.value)}
+                  options={difficultyLevelSelectOptions(difficultyLevels)}
+                />
+                <DurationInput
+                  label="Tempo médio de resolução"
+                  value={tempoMedio}
+                  onChange={setTempoMedio}
+                />
+                <Input
+                  label="Tipo de texto-base"
+                  value={tipoTextoBase}
+                  onChange={(e) => setTipoTextoBase(e.target.value)}
+                  placeholder="Ex: Narrativo, Informativo, Poema..."
+                />
+                <Input label="Fonte" value={fonte} onChange={(e) => setFonte(e.target.value)} />
+              </div>
+            </CollapsibleSection>
           </Card>
 
           <div className="space-y-6">
@@ -311,26 +411,10 @@ export function QuestionFormPage() {
                   label="Enunciado"
                   value={enunciado}
                   onChange={setEnunciado}
-                  minHeight="140px"
+                  minHeight="180px"
+                  enableImages
+                  onImageUploadError={setError}
                 />
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                    Imagem (opcional)
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <label className="cursor-pointer">
-                      <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                      <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-slate-300 hover:bg-white/10 transition-colors">
-                        <Upload size={16} />
-                        {uploading ? 'Enviando...' : 'Upload de imagem'}
-                      </span>
-                    </label>
-                    {imageUrl && (
-                      <img src={imageUrl} alt="Preview" className="h-16 rounded-lg object-cover" />
-                    )}
-                  </div>
-                </div>
               </div>
             </Card>
 
@@ -367,64 +451,6 @@ export function QuestionFormPage() {
                 />
               </Card>
             )}
-
-            <Card>
-              <h3 className="text-sm font-semibold text-primary-300 mb-4">Metadados Pedagógicos</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="Código do item" value={codigoItem} onChange={(e) => setCodigoItem(e.target.value)} />
-                <Select
-                  label="Componente curricular"
-                  value={componenteCurricular}
-                  onChange={(e) => setComponenteCurricular(e.target.value)}
-                  options={COMPONENTE_OPTIONS}
-                />
-                <Textarea
-                  label="Conteúdo programático"
-                  value={conteudoProgramatico}
-                  onChange={(e) => setConteudoProgramatico(e.target.value)}
-                  className="min-h-[56px] max-h-[80px]"
-                  rows={2}
-                />
-                <Select
-                  label="Ano/Série"
-                  value={anoSerie}
-                  onChange={(e) => setAnoSerie(e.target.value)}
-                  options={ANO_SERIE_OPTIONS}
-                />
-                <Input label="Descritor Saeb" value={descritorSaeb} onChange={(e) => setDescritorSaeb(e.target.value)} />
-                <Input
-                  label="Habilidade BNCC relacionada"
-                  value={habilidadeBncc}
-                  onChange={(e) => setHabilidadeBncc(e.target.value)}
-                  required
-                />
-                <Select
-                  label="Nível de Bloom"
-                  value={nivelBloom}
-                  onChange={(e) => setNivelBloom(e.target.value)}
-                  required
-                  options={[{ value: '', label: 'Selecione...' }, ...BLOOM_LEVELS.map((l) => ({ value: l, label: l }))]}
-                />
-                <Select
-                  label="Nível de dificuldade"
-                  value={nivelDificuldade}
-                  onChange={(e) => handleNivelDificuldadeChange(e.target.value)}
-                  options={difficultyLevelSelectOptions(difficultyLevels)}
-                />
-                <DurationInput
-                  label="Tempo médio de resolução"
-                  value={tempoMedio}
-                  onChange={setTempoMedio}
-                />
-                <Input
-                  label="Tipo de texto-base"
-                  value={tipoTextoBase}
-                  onChange={(e) => setTipoTextoBase(e.target.value)}
-                  placeholder="Ex: Narrativo, Informativo, Poema..."
-                />
-                <Input label="Fonte" value={fonte} onChange={(e) => setFonte(e.target.value)} />
-              </div>
-            </Card>
 
             {triCalibratedAt && (
               <Card>
@@ -473,7 +499,15 @@ export function QuestionFormPage() {
                 <Eye size={16} />
                 Visualizar
               </Button>
-              <Button type="button" variant="secondary" onClick={() => navigate('/admin/questoes')}>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  if (embedded && onCancel) onCancel()
+                  else if (resolvedReturnPath) navigate(resolvedReturnPath)
+                  else navigate('/admin/questoes')
+                }}
+              >
                 Cancelar
               </Button>
             </div>
@@ -488,7 +522,7 @@ export function QuestionFormPage() {
           title,
           enunciado,
           questionType,
-          imageUrl,
+          imageUrl: undefined,
           alternatives: needsAlternatives(questionType) ? alternatives : [],
           metadata: {
             codigo_item: codigoItem,

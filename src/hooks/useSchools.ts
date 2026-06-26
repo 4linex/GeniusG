@@ -1,0 +1,100 @@
+import { useCallback, useEffect, useState } from 'react'
+import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
+import { listSchools } from '@/lib/schools'
+import { listAllSchoolClasses } from '@/lib/schoolClasses'
+import type { School, SchoolClass } from '@/types/database'
+
+let schoolsCache: School[] | null = null
+let schoolsCachePromise: Promise<School[]> | null = null
+
+async function loadSchoolsCached(): Promise<School[]> {
+  if (schoolsCache) return schoolsCache
+  if (!schoolsCachePromise) {
+    schoolsCachePromise = listSchools()
+      .then((data) => {
+        schoolsCache = data
+        return data
+      })
+      .finally(() => {
+        schoolsCachePromise = null
+      })
+  }
+  return schoolsCachePromise
+}
+
+export function invalidateSchoolsCache() {
+  schoolsCache = null
+}
+
+export function useSchools() {
+  const [schools, setSchools] = useState<School[]>(schoolsCache || [])
+  const [loading, setLoading] = useState(!schoolsCache)
+  const [error, setError] = useState('')
+
+  const reload = useCallback(async (force = true) => {
+    if (force) invalidateSchoolsCache()
+    setLoading(true)
+    setError('')
+    try {
+      const data = await loadSchoolsCached()
+      setSchools(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar escolas')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!schoolsCache) void reload(false)
+  }, [reload])
+
+  useRefreshOnFocus(() => reload(true), true)
+
+  return { schools, loading, error, reload }
+}
+
+let classesCache: SchoolClass[] | null = null
+let classesCachePromise: Promise<SchoolClass[]> | null = null
+
+async function loadClassesCached(): Promise<SchoolClass[]> {
+  if (classesCache) return classesCache
+  if (!classesCachePromise) {
+    classesCachePromise = listAllSchoolClasses()
+      .then((data) => {
+        classesCache = data
+        return data
+      })
+      .finally(() => {
+        classesCachePromise = null
+      })
+  }
+  return classesCachePromise
+}
+
+export function invalidateSchoolClassesCache() {
+  classesCache = null
+}
+
+export function useAllSchoolClasses() {
+  const [classes, setClasses] = useState<SchoolClass[]>(classesCache || [])
+  const [loading, setLoading] = useState(!classesCache)
+
+  const reload = useCallback(async (force = true) => {
+    if (force) invalidateSchoolClassesCache()
+    setLoading(true)
+    try {
+      setClasses(await loadClassesCached())
+    } catch {
+      setClasses([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!classesCache) void reload(false)
+  }, [reload])
+
+  return { classes, loading, reload }
+}

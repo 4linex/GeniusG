@@ -135,7 +135,7 @@ export function FormReportDetailPage() {
     setReportOpen(true)
     setReportLoading(true)
     try {
-      setReportData(await buildFormRecoveryReport(formId))
+      setReportData(await buildFormRecoveryReport(formId, filters))
     } finally {
       setReportLoading(false)
     }
@@ -191,6 +191,8 @@ export function FormReportDetailPage() {
         onChange={setFilters}
         students={studentOptions}
         showForm={false}
+        showScope
+        scopeProfile={profile}
         searchPlaceholder="Buscar aluno..."
       />
 

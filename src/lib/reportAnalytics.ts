@@ -3,12 +3,18 @@ import type { SkillBreakdownRow } from '@/lib/formAssessmentReport'
 import type { TriFormChartRow } from '@/lib/formAssessmentReport'
 import { getPerformanceStatus } from '@/hooks/useScopedResponses'
 
+export type ReportScopeType = 'all' | 'municipio' | 'escola' | 'turma'
+
 export interface ReportFilters {
   formId?: string
   studentEmail?: string
   dateFrom?: string
   dateTo?: string
   search?: string
+  scopeType?: ReportScopeType
+  municipio?: string
+  school_name?: string
+  turma?: string
 }
 
 export type ResponseWithForm = FormResponse & {
@@ -18,8 +24,28 @@ export type ResponseWithForm = FormResponse & {
 export interface RawAnswerRow {
   response_id: string
   is_correct: boolean
-  habilidade: string
+  habilidade_bncc: string
+  descritor_saeb: string
   bloom: string
+}
+
+export type SkillAggregateMode = 'bncc' | 'saeb' | 'bloom'
+
+export const EMPTY_SKILL_LABELS: Record<SkillAggregateMode, string> = {
+  bncc: 'Sem habilidade BNCC',
+  saeb: 'Sem descritor SAEB',
+  bloom: 'Sem nível Bloom',
+}
+
+function skillFieldValue(row: RawAnswerRow, mode: SkillAggregateMode): string {
+  if (mode === 'bncc') return row.habilidade_bncc
+  if (mode === 'saeb') return row.descritor_saeb
+  return row.bloom
+}
+
+function isEmptySkillKey(key: string, mode: SkillAggregateMode): boolean {
+  const trimmed = key.trim()
+  return !trimmed || trimmed === EMPTY_SKILL_LABELS[mode]
 }
 
 const NIVEL_EMPTY: Record<NivelProficiencia, number> = {
@@ -28,11 +54,16 @@ const NIVEL_EMPTY: Record<NivelProficiencia, number> = {
   avancado: 0,
 }
 
+function normContext(value: string | null | undefined): string {
+  return value?.trim() || ''
+}
+
 export function applyReportFilters(
   responses: ResponseWithForm[],
   filters: ReportFilters,
 ): ResponseWithForm[] {
   const q = filters.search?.trim().toLowerCase()
+  const scopeType = filters.scopeType ?? 'all'
 
   return responses.filter((r) => {
     if (filters.formId && r.form_id !== filters.formId) return false
@@ -45,8 +76,27 @@ export function applyReportFilters(
       return false
     }
 
+    if (scopeType === 'municipio' && filters.municipio) {
+      if (normContext(r.municipio) !== filters.municipio) return false
+    }
+
+    if (scopeType === 'escola') {
+      if (filters.municipio && normContext(r.municipio) !== filters.municipio) return false
+      if (filters.school_name && normContext(r.school_name) !== filters.school_name) return false
+    }
+
+    if (scopeType === 'turma' && filters.turma) {
+      if (normContext(r.turma) !== filters.turma) return false
+      if (filters.municipio && normContext(r.municipio) !== filters.municipio) return false
+      if (filters.school_name && normContext(r.school_name) !== filters.school_name) return false
+    }
+
+    if (filters.turma && scopeType !== 'turma' && normContext(r.turma) !== filters.turma) {
+      return false
+    }
+
     if (q) {
-      const haystack = `${r.student_name} ${r.student_email} ${r.form?.title ?? ''} ${r.form?.turma ?? ''}`.toLowerCase()
+      const haystack = `${r.student_name} ${r.student_email} ${r.form?.title ?? ''} ${r.form?.turma ?? ''} ${r.municipio ?? ''} ${r.school_name ?? ''}`.toLowerCase()
       if (!haystack.includes(q)) return false
     }
 
@@ -74,13 +124,14 @@ export function countByPerformanceStatus(responses: ResponseWithForm[]) {
 export function aggregateSkillsFromAnswers(
   answers: RawAnswerRow[],
   responseIds: Set<string>,
-  mode: 'habilidade' | 'bloom',
+  mode: SkillAggregateMode,
 ): SkillBreakdownRow[] {
   const map = new Map<string, { total: number; correct: number }>()
 
   for (const a of answers) {
     if (!responseIds.has(a.response_id)) continue
-    const key = mode === 'habilidade' ? a.habilidade : a.bloom
+    const key = skillFieldValue(a, mode)
+    if (isEmptySkillKey(key, mode)) continue
     const cur = map.get(key) || { total: 0, correct: 0 }
     cur.total++
     if (a.is_correct) cur.correct++
@@ -142,13 +193,56 @@ export function avgTct(responses: ResponseWithForm[]) {
   return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
 }
 
+export function reportScopeLabel(
+  filters: Pick<ReportFilters, 'scopeType' | 'municipio' | 'school_name' | 'turma'>,
+): string {
+  if (filters.scopeType === 'turma' && filters.turma) {
+    const parts = [filters.turma, filters.school_name, filters.municipio].filter(Boolean)
+    return parts.join(' · ')
+  }
+  if (filters.scopeType === 'municipio' && filters.municipio) {
+    return filters.municipio
+  }
+  if (filters.scopeType === 'escola') {
+    if (filters.school_name && filters.municipio) {
+      return `${filters.school_name} (${filters.municipio})`
+    }
+    if (filters.school_name) return filters.school_name
+  }
+  return 'Todas as escolas'
+}
+
+export function formatReportPeriod(
+  responses: { completed_at: string }[],
+  filters?: Pick<ReportFilters, 'dateFrom' | 'dateTo'>,
+): string | undefined {
+  if (filters?.dateFrom || filters?.dateTo) {
+    const from = filters.dateFrom
+      ? new Intl.DateTimeFormat('pt-BR').format(new Date(`${filters.dateFrom}T12:00:00`))
+      : 'início'
+    const to = filters.dateTo
+      ? new Intl.DateTimeFormat('pt-BR').format(new Date(`${filters.dateTo}T12:00:00`))
+      : 'hoje'
+    return `${from} — ${to}`
+  }
+
+  const dates = responses.map((r) => r.completed_at).sort()
+  if (dates.length === 0) return undefined
+  const fmt = (iso: string) => new Intl.DateTimeFormat('pt-BR').format(new Date(iso))
+  return dates.length === 1 ? fmt(dates[0]) : `${fmt(dates[0])} — ${fmt(dates[dates.length - 1])}`
+}
+
 export function hasActiveFilters(filters: ReportFilters) {
   return Boolean(
     filters.formId ||
       filters.studentEmail ||
       filters.dateFrom ||
       filters.dateTo ||
-      filters.search,
+      filters.search ||
+      (filters.scopeType && filters.scopeType !== 'all') ||
+      filters.municipio ||
+      filters.school_name ||
+      filters.turma,
   )
 }
 
@@ -210,15 +304,18 @@ export function aggregateTriBySkill(
   answers: RawAnswerRow[],
   responses: ResponseWithForm[],
   responseIds: Set<string>,
+  mode: SkillAggregateMode = 'bncc',
 ): TriSkillRow[] {
   const thetaByResponse = new Map(responses.map((r) => [r.id, r.theta]))
   const bySkill = new Map<string, Set<string>>()
 
   for (const a of answers) {
     if (!responseIds.has(a.response_id)) continue
-    const ids = bySkill.get(a.habilidade) || new Set()
+    const label = skillFieldValue(a, mode)
+    if (isEmptySkillKey(label, mode)) continue
+    const ids = bySkill.get(label) || new Set()
     ids.add(a.response_id)
-    bySkill.set(a.habilidade, ids)
+    bySkill.set(label, ids)
   }
 
   return Array.from(bySkill.entries())

@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
+import { EMPTY_SKILL_LABELS } from '@/lib/reportAnalytics'
 import { formatPercentRange } from '@/lib/formTrails'
 import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
 import type { LearningTrail, NivelProficiencia } from '@/types/database'
@@ -138,20 +139,30 @@ export async function loadFormAssessmentDetail(formId: string) {
   }))
 
   let bnccSkills: SkillBreakdownRow[] = []
+  let saebSkills: SkillBreakdownRow[] = []
   let bloomSkills: SkillBreakdownRow[] = []
 
   if (list.length > 0) {
     const answerRows = await fetchAnswersByResponseIds(list.map((r) => r.id))
 
-    const byHabilidade = new Map<string, { total: number; correct: number }>()
+    const byBncc = new Map<string, { total: number; correct: number }>()
+    const bySaeb = new Map<string, { total: number; correct: number }>()
     const byBloom = new Map<string, { total: number; correct: number }>()
 
     for (const a of answerRows) {
-      const habKey = a.habilidade
-      const hab = byHabilidade.get(habKey) || { total: 0, correct: 0 }
-      hab.total++
-      if (a.is_correct) hab.correct++
-      byHabilidade.set(habKey, hab)
+      if (a.habilidade_bncc !== EMPTY_SKILL_LABELS.bncc) {
+        const hab = byBncc.get(a.habilidade_bncc) || { total: 0, correct: 0 }
+        hab.total++
+        if (a.is_correct) hab.correct++
+        byBncc.set(a.habilidade_bncc, hab)
+      }
+
+      if (a.descritor_saeb !== EMPTY_SKILL_LABELS.saeb) {
+        const saeb = bySaeb.get(a.descritor_saeb) || { total: 0, correct: 0 }
+        saeb.total++
+        if (a.is_correct) saeb.correct++
+        bySaeb.set(a.descritor_saeb, saeb)
+      }
 
       const bloomKey = a.bloom
       const bloom = byBloom.get(bloomKey) || { total: 0, correct: 0 }
@@ -171,11 +182,12 @@ export async function loadFormAssessmentDetail(formId: string) {
         }))
         .sort((a, b) => a.percentage - b.percentage)
 
-    bnccSkills = toRows(byHabilidade)
+    bnccSkills = toRows(byBncc)
+    saebSkills = toRows(bySaeb)
     bloomSkills = toRows(byBloom)
   }
 
-  return { form, summary, students, bnccSkills, bloomSkills }
+  return { form, summary, students, bnccSkills, saebSkills, bloomSkills }
 }
 
 export async function loadStudentResponseDetail(formId: string, responseId: string) {

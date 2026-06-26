@@ -8,7 +8,6 @@ import { RichTextEditor } from '@/components/ui/RichTextEditor'
 import { AlternativeOptionsEditor } from '@/components/questions/AlternativeOptionsEditor'
 import { QuestionTypeBadge } from '@/components/forms/QuestionTypePicker'
 import { QuestionMetadataFields } from '@/components/forms/QuestionMetadataFields'
-import { QuestionMediaFields } from '@/components/forms/builder/QuestionMediaFields'
 import type { BuilderQuestion } from '@/components/forms/builder/types'
 import { needsAlternatives, QUESTION_TYPE_LABELS } from '@/types/questionTypes'
 import { isRichTextEmpty } from '@/lib/richText'
@@ -161,12 +160,9 @@ export function QuestionInspector({
           label={draft.questionType === 'resultado' ? 'Conteúdo' : 'Enunciado'}
           value={draft.enunciado}
           onChange={(html) => patch({ enunciado: html })}
-          minHeight="100px"
-        />
-
-        <QuestionMediaFields
-          imageUrl={draft.imageUrl}
-          onImageChange={(url) => patch({ imageUrl: url })}
+          minHeight="120px"
+          enableImages
+          onImageUploadError={setSaveError}
         />
 
         {needsAlternatives(draft.questionType) ? (

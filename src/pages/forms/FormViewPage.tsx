@@ -131,6 +131,10 @@ export function FormViewPage() {
                 <dt className="text-slate-500">Série</dt>
                 <dd className="text-white">{form.turma || '5º Ano'}</dd>
               </div>
+              <div>
+                <dt className="text-slate-500">Área do conhecimento</dt>
+                <dd className="text-white">{form.componente_curricular || 'Língua Portuguesa'}</dd>
+              </div>
               {form.school_name && (
                 <div>
                   <dt className="text-slate-500">Escola</dt>

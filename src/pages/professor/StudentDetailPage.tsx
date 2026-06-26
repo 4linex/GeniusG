@@ -1,19 +1,23 @@
 import { Link, useParams } from 'react-router-dom'
 import { useMemo, useState } from 'react'
-import { ArrowLeft, ExternalLink, FileText, FileBarChart } from 'lucide-react'
+import { ArrowLeft, FileBarChart } from 'lucide-react'
 import { useScopedResponses } from '@/hooks/useScopedResponses'
 import { useReportDataContext } from '@/contexts/ReportDataContext'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { RecoveryReportModal } from '@/components/reports/RecoveryReportModal'
+import { StudentReportPickerModal } from '@/components/reports/StudentReportPickerModal'
 import { CHART_COLORS, DonutChart, HorizontalBarChart } from '@/components/reports/ReportCharts'
-import { buildStudentRecoveryReport } from '@/lib/recoveryReport'
+import {
+  buildStudentFormRecoveryReport,
+  buildStudentRecoveryReport,
+} from '@/lib/recoveryReport'
 import type { RecoveryReportData } from '@/lib/recoveryReport'
 import { aggregateSkillsFromAnswers } from '@/lib/reportAnalytics'
-import { formatDate, formatScore } from '@/lib/utils'
-import { NIVEL_PROFICIENCIA_LABELS } from '@/lib/scoring'
+import { formatScore } from '@/lib/utils'
 import { formatPercentRange } from '@/lib/formTrails'
+import { StudentAnsweredFormCard } from '@/components/trails/StudentAnsweredFormCard'
 import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
 import type { FormResponse, FormTrail, LearningTrail } from '@/types/database'
 
@@ -30,12 +34,13 @@ export function StudentDetailPage() {
   const { email: emailParam } = useParams()
   const email = emailParam ? decodeURIComponent(emailParam) : ''
   const [reportOpen, setReportOpen] = useState(false)
+  const [reportPickerOpen, setReportPickerOpen] = useState(false)
   const [reportData, setReportData] = useState<RecoveryReportData | null>(null)
   const [reportLoading, setReportLoading] = useState(false)
 
   const { responses: allResponses, loading } = useScopedResponses<ResponseWithTrail>(`
     *,
-    form:forms(title),
+    form:forms(id, title),
     trail_assignment:student_trail_assignments(
       form_trail:form_trails(
       min_percent,
@@ -51,7 +56,11 @@ export function StudentDetailPage() {
   const { answers } = useReportDataContext()
   const responseIds = useMemo(() => new Set(responses.map((r) => r.id)), [responses])
   const bnccSkills = useMemo(
-    () => aggregateSkillsFromAnswers(answers, responseIds, 'habilidade'),
+    () => aggregateSkillsFromAnswers(answers, responseIds, 'bncc'),
+    [answers, responseIds],
+  )
+  const saebSkills = useMemo(
+    () => aggregateSkillsFromAnswers(answers, responseIds, 'saeb'),
     [answers, responseIds],
   )
   const bloomSkills = useMemo(
@@ -59,6 +68,7 @@ export function StudentDetailPage() {
     [answers, responseIds],
   )
   const deficitSkills = bnccSkills.filter((s) => s.percentage < 60)
+  const deficitSaeb = saebSkills.filter((s) => s.percentage < 60)
 
   const formChartItems = useMemo(
     () =>
@@ -78,11 +88,23 @@ export function StudentDetailPage() {
       ? tctResponses.reduce((sum, r) => sum + (r.percentual_acerto ?? 0), 0) / tctResponses.length
       : null
 
-  const openReport = async () => {
+  const openGeneralReport = async (filters: { dateFrom?: string; dateTo?: string }) => {
+    setReportPickerOpen(false)
     setReportOpen(true)
     setReportLoading(true)
     try {
-      const data = await buildStudentRecoveryReport(allResponses, email)
+      const data = await buildStudentRecoveryReport(allResponses, email, filters)
+      setReportData(data)
+    } finally {
+      setReportLoading(false)
+    }
+  }
+
+  const openFormReport = async (formId: string) => {
+    setReportOpen(true)
+    setReportLoading(true)
+    try {
+      const data = await buildStudentFormRecoveryReport(allResponses, email, formId)
       setReportData(data)
     } finally {
       setReportLoading(false)
@@ -135,9 +157,9 @@ export function StudentDetailPage() {
             )}
           </div>
         </div>
-        <Button variant="secondary" size="sm" onClick={openReport}>
+        <Button variant="secondary" size="sm" onClick={() => setReportPickerOpen(true)}>
           <FileBarChart size={16} />
-          Gerar relatório do aluno
+          Relatório geral do aluno
         </Button>
       </div>
 
@@ -184,6 +206,18 @@ export function StudentDetailPage() {
               />
             </Card>
           )}
+          {deficitSaeb.length > 0 && (
+            <Card className="!p-5 lg:col-span-2 border-amber-500/20">
+              <HorizontalBarChart
+                title="Descritores SAEB com déficit"
+                items={deficitSaeb.map((s) => ({
+                  label: s.label,
+                  value: s.percentage,
+                  isCritical: true,
+                }))}
+              />
+            </Card>
+          )}
           {deficitSkills.length > 0 && (
             <Card className="!p-5 lg:col-span-2 border-red-500/20">
               <HorizontalBarChart
@@ -199,72 +233,47 @@ export function StudentDetailPage() {
         </div>
       )}
 
-      <h2 className="text-lg font-semibold text-white mb-4">Formulários respondidos</h2>
+      <h2 className="text-lg font-semibold text-white mb-1">Formulários respondidos</h2>
+      <p className="text-sm text-slate-400 mb-4">
+        A trilha de recomposição é a principal orientação pedagógica para cada avaliação.
+      </p>
 
-      <div className="space-y-3">
+      <div className="space-y-4">
         {responses.map((r) => {
           const formTrail = r.trail_assignment?.form_trail
-          const trail = formTrail?.learning_trail
+          const trail = formTrail?.learning_trail ?? null
           const trailLabel =
             formTrail?.min_percent != null && formTrail?.max_percent != null
               ? formatPercentRange(formTrail.min_percent, formTrail.max_percent)
               : null
           return (
-            <Card key={r.id}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="font-medium text-white">{r.form?.title || 'Formulário'}</h3>
-                  <p className="text-xs text-slate-500 mt-1">{formatDate(r.completed_at)}</p>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {r.percentual_acerto != null && (
-                      <Badge variant="info">TCT: {formatScore(r.percentual_acerto)}</Badge>
-                    )}
-                    {r.nivel_proficiencia && (
-                      <Badge variant={r.nivel_proficiencia === 'avancado' ? 'success' : 'warning'}>
-                        {NIVEL_PROFICIENCIA_LABELS[r.nivel_proficiencia]}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2">
-                    {r.correct_answers}/{r.total_questions} acertos
-                  </p>
-                </div>
-                {trail && (
-                  <div className="text-right shrink-0 max-w-xs">
-                    <p className="text-xs text-slate-500 mb-1">Trilha recomendada</p>
-                    {trailLabel && (
-                      <Badge variant="default" className="mb-1">{trailLabel}</Badge>
-                    )}
-                    <p className="text-sm text-primary-300 font-medium">{trail.title}</p>
-                    {trail.pedagogical_pdf_url && (
-                      <a
-                        href={trail.pedagogical_pdf_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-primary-400 mt-1"
-                      >
-                        <FileText size={12} />
-                        PDF pedagógico
-                      </a>
-                    )}
-                    {trail.pedagogical_link_url && (
-                      <a
-                        href={trail.pedagogical_link_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-primary-400 mt-1 ml-2"
-                      >
-                        <ExternalLink size={12} />
-                        Recursos
-                      </a>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Card>
+            <StudentAnsweredFormCard
+              key={r.id}
+              formTitle={r.form?.title || 'Formulário'}
+              completedAt={r.completed_at}
+              percentualAcerto={r.percentual_acerto ?? null}
+              nivelProficiencia={r.nivel_proficiencia ?? null}
+              correctAnswers={r.correct_answers ?? null}
+              totalQuestions={r.total_questions ?? null}
+              trail={trail}
+              percentRange={trailLabel}
+              onReport={
+                r.form_id
+                  ? () => void openFormReport(r.form_id)
+                  : undefined
+              }
+            />
           )
         })}
       </div>
+
+      <StudentReportPickerModal
+        open={reportPickerOpen}
+        onClose={() => setReportPickerOpen(false)}
+        onGenerate={openGeneralReport}
+        generating={reportLoading}
+        studentName={student.student_name}
+      />
 
       <RecoveryReportModal
         open={reportOpen}

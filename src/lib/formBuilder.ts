@@ -9,12 +9,14 @@ import type { BuilderQuestion } from '@/components/forms/builder/types'
 import { questionRowToMetadata } from '@/components/forms/builder/types'
 import { metadataToDbFields } from '@/components/forms/builder/types'
 import { needsAlternatives } from '@/types/questionTypes'
+import { mergeLegacyQuestionImage } from '@/lib/richTextImages'
 import { dedupeAlternativesByLetter } from '@/lib/questionAlternatives'
 import { getErrorMessage, syncQuestionAlternatives } from '@/lib/syncQuestionAlternatives'
 import { loadDifficultyLevels, resolveQuestionPointValue } from '@/lib/difficultyLevels'
 import type { DifficultyLevel } from '@/types/database'
 import type { FormTrailConfig } from '@/types/database'
 import { formTrailRowToConfig } from '@/lib/formTrails'
+import { ensureSkillBankFromQuestionFields } from '@/lib/skillBank'
 
 export { getErrorMessage, syncQuestionAlternatives }
 
@@ -22,6 +24,7 @@ export interface FormSavePayload {
   title: string
   description: string
   schoolName: string
+  componenteCurricular: string
   isActive: boolean
   status: FormStatus
   expectedStudents: string
@@ -61,16 +64,27 @@ function questionPointValue(q: BuilderQuestion, levels: DifficultyLevel[]) {
   return resolveQuestionPointValue(q.questionType, q.metadata?.nivel_dificuldade, levels)
 }
 
+async function syncQuestionSkillBank(metadata: BuilderQuestion['metadata']): Promise<void> {
+  if (!metadata) return
+  await ensureSkillBankFromQuestionFields({
+    descritor_saeb: metadata.descritor_saeb,
+    habilidade_bncc: metadata.habilidade_bncc,
+    nivel_bloom: metadata.nivel_bloom,
+  })
+}
+
 async function upsertInlineQuestion(
   q: BuilderQuestion,
   userId: string,
   difficultyLevels: DifficultyLevel[],
 ): Promise<string> {
+  await syncQuestionSkillBank(q.metadata)
+
   const payload = {
     title: q.title,
     enunciado: q.enunciado,
     subtitle: q.description || null,
-    image_url: q.imageUrl || null,
+    image_url: null,
     youtube_url: q.youtubeUrl || null,
     creator_notes: q.creatorNotes || null,
     point_value: questionPointValue(q, difficultyLevels),
@@ -106,11 +120,13 @@ async function updateBankQuestionInForm(
 ): Promise<void> {
   if (!q.questionId) return
 
+  await syncQuestionSkillBank(q.metadata)
+
   const updatePayload: Record<string, unknown> = {
     title: q.title,
     enunciado: q.enunciado,
     subtitle: q.description || null,
-    image_url: q.imageUrl || null,
+    image_url: null,
     youtube_url: q.youtubeUrl || null,
     point_value: questionPointValue(q, difficultyLevels),
     ...metadataToDbFields(q.metadata),
@@ -154,6 +170,7 @@ export async function saveForm(
     title: payload.title,
     description: payload.description || null,
     school_name: payload.schoolName.trim() || null,
+    componente_curricular: payload.componenteCurricular,
     is_active: payload.isActive,
     status: payload.status,
     expected_students: payload.expectedStudents ? parseInt(payload.expectedStudents, 10) : null,
@@ -280,9 +297,9 @@ export async function loadFormForBuilder(formId: string) {
       source: q!.is_form_exclusive ? 'inline' : 'bank',
       questionType: q!.question_type || 'multipla_escolha',
       title: q!.title,
-      enunciado: q!.enunciado,
+      enunciado: mergeLegacyQuestionImage(q!.enunciado, q!.image_url),
       description: q!.subtitle || undefined,
-      imageUrl: q!.image_url || null,
+      imageUrl: null,
       youtubeUrl: q!.youtube_url || null,
       creatorNotes: q!.creator_notes || undefined,
       createdBy: q!.created_by || null,

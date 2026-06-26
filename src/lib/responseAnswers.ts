@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAllInBatches } from '@/lib/supabaseBatch'
-import type { RawAnswerRow } from '@/lib/reportAnalytics'
+import { EMPTY_SKILL_LABELS, type RawAnswerRow } from '@/lib/reportAnalytics'
 
 export interface NestedResponseAnswer {
   is_correct: boolean | null
@@ -11,6 +11,11 @@ export interface NestedResponseAnswer {
   } | null
 }
 
+function skillLabel(value: string | null | undefined, empty: string): string {
+  const trimmed = value?.trim()
+  return trimmed || empty
+}
+
 export function parseNestedAnswer(
   responseId: string,
   answer: NestedResponseAnswer,
@@ -19,8 +24,9 @@ export function parseNestedAnswer(
   return {
     response_id: responseId,
     is_correct: Boolean(answer.is_correct),
-    habilidade: q?.habilidade_bncc || q?.descritor_saeb || 'Sem habilidade',
-    bloom: q?.nivel_bloom || 'Sem nível Bloom',
+    habilidade_bncc: skillLabel(q?.habilidade_bncc, EMPTY_SKILL_LABELS.bncc),
+    descritor_saeb: skillLabel(q?.descritor_saeb, EMPTY_SKILL_LABELS.saeb),
+    bloom: skillLabel(q?.nivel_bloom, EMPTY_SKILL_LABELS.bloom),
   }
 }
 
@@ -55,8 +61,9 @@ export async function fetchAnswersByResponseIds(responseIds: string[]): Promise<
       return {
         response_id: row.response_id,
         is_correct: Boolean(row.is_correct),
-        habilidade: q?.habilidade_bncc || q?.descritor_saeb || 'Sem habilidade',
-        bloom: q?.nivel_bloom || 'Sem nível Bloom',
+        habilidade_bncc: skillLabel(q?.habilidade_bncc, EMPTY_SKILL_LABELS.bncc),
+        descritor_saeb: skillLabel(q?.descritor_saeb, EMPTY_SKILL_LABELS.saeb),
+        bloom: skillLabel(q?.nivel_bloom, EMPTY_SKILL_LABELS.bloom),
       }
     })
   })

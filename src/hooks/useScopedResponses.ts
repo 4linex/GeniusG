@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import {
+  getProfessorLinkIds,
+  applyProfessorProfileScope,
+  applyProfileLocationScope,
+  isScopedAdminRole,
+} from '@/lib/dashboardScope'
+import {
+  getProfileMunicipios,
+  getProfileSchoolNames,
+  profileLocationCacheKey,
+} from '@/lib/profileLocations'
 import type { FormResponse } from '@/types/database'
-
-async function getProfessorLinkIds(professorId: string): Promise<string[]> {
-  const { data: links } = await supabase
-    .from('form_links')
-    .select('id')
-    .eq('professor_id', professorId)
-
-  return links?.map((l) => l.id) || []
-}
 
 const scopedCache = new Map<string, FormResponse[]>()
 
@@ -18,7 +20,9 @@ export function useScopedResponses<T extends FormResponse = FormResponse>(
   select: string,
 ) {
   const { user, profile } = useAuth()
-  const cacheKey = user && profile ? `${user.id}:${profile.role}:${select}` : null
+  const cacheKey = user && profile
+    ? `${user.id}:${profile.role}:${profileLocationCacheKey(profile)}:${select}`
+    : null
   const cached = cacheKey ? (scopedCache.get(cacheKey) as T[] | undefined) : undefined
 
   const [responses, setResponses] = useState<T[]>(cached ?? [])
@@ -30,7 +34,7 @@ export function useScopedResponses<T extends FormResponse = FormResponse>(
       return
     }
 
-    const key = `${user.id}:${profile.role}:${select}`
+    const key = `${user.id}:${profile.role}:${profileLocationCacheKey(profile)}:${select}`
     const hit = scopedCache.get(key) as T[] | undefined
     if (hit) {
       setResponses(hit)
@@ -49,7 +53,7 @@ export function useScopedResponses<T extends FormResponse = FormResponse>(
         .order('completed_at', { ascending: false })
 
       if (profile.role === 'professor') {
-        const linkIds = await getProfessorLinkIds(user.id)
+        const linkIds = await getProfessorLinkIds(user.id, profile)
         if (linkIds.length === 0) {
           if (!cancelled) {
             scopedCache.set(key, [])
@@ -59,11 +63,25 @@ export function useScopedResponses<T extends FormResponse = FormResponse>(
           return
         }
         query = query.in('form_link_id', linkIds)
+      } else if (isScopedAdminRole(profile.role)) {
+        const municipios = getProfileMunicipios(profile)
+        const schoolNames = getProfileSchoolNames(profile)
+        if (municipios.length === 1) query = query.eq('municipio', municipios[0])
+        else if (municipios.length > 1) query = query.in('municipio', municipios)
+        if (schoolNames.length === 1) query = query.eq('school_name', schoolNames[0])
+        else if (schoolNames.length > 1) query = query.in('school_name', schoolNames)
       }
 
       const { data } = await query
       if (cancelled) return
-      const list = (data as unknown as T[]) || []
+      let list = (data as unknown as T[]) || []
+
+      if (profile.role === 'professor') {
+        list = applyProfessorProfileScope(list, profile)
+      } else if (isScopedAdminRole(profile.role)) {
+        list = applyProfileLocationScope(list, profile)
+      }
+
       scopedCache.set(key, list as FormResponse[])
       setResponses(list)
       setLoading(false)

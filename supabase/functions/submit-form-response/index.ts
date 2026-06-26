@@ -9,6 +9,10 @@ import {
 import { estimateItemParamsFromResponses } from '../_shared/itemCalibration.ts'
 import { clampScore, clampTheta, clampPointValue, sanitizeItemTriParams } from '../_shared/scoreBounds.ts'
 import { findFormTrailByPercent } from '../_shared/formTrails.ts'
+import {
+  getFormLinkAvailability,
+  getFormLinkAvailabilityError,
+} from '../_shared/formLinkAvailability.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,7 +43,7 @@ serve(async (req) => {
 
     const { data: link } = await supabase
       .from('form_links')
-      .select('id, form_id')
+      .select('id, form_id, municipio, school_name, turma, available_from, available_until')
       .eq('slug', slug)
       .eq('is_active', true)
       .single()
@@ -48,6 +52,16 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: 'Link inválido' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const availability = getFormLinkAvailability(link)
+    if (availability !== 'available') {
+      return new Response(
+        JSON.stringify({
+          error: getFormLinkAvailabilityError(link) || 'Formulário indisponível',
+        }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
     }
 
@@ -151,6 +165,9 @@ serve(async (req) => {
       .insert({
         form_id: link.form_id,
         form_link_id: link.id,
+        municipio: link.municipio,
+        school_name: link.school_name,
+        turma: link.turma,
         student_name: student_name.trim(),
         student_email: email,
         score: clampScore(assessment.proficienciaEscala),
