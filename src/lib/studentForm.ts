@@ -11,6 +11,10 @@ import type { FormMode } from '@/types/database'
 import { clampScore, clampTheta, clampPointValue, sanitizeItemTriParams } from '@/lib/scoreBounds'
 import { dedupeAlternativesByLetter } from '@/lib/questionAlternatives'
 import { STUDENT_TRAIL_COLUMNS } from '@/lib/trailAreas'
+import {
+  getFormLinkAvailability,
+  getFormLinkAvailabilityMessage,
+} from '@/lib/formLinkAvailability'
 
 export interface StudentAssignedTrail {
   title: string
@@ -57,6 +61,8 @@ async function loadStudentFormFromDb(slug: string): Promise<StudentFormConfig> {
     .select(`
       id,
       form_id,
+      available_from,
+      available_until,
       form:forms(
         title,
         is_active,
@@ -72,6 +78,14 @@ async function loadStudentFormFromDb(slug: string): Promise<StudentFormConfig> {
 
   if (linkError || !link) {
     throw new Error('Link inválido ou inativo')
+  }
+
+  const availability = getFormLinkAvailability(link)
+  if (availability !== 'available') {
+    throw new Error(
+      getFormLinkAvailabilityMessage(link) ||
+        'Este formulário não está disponível no momento.',
+    )
   }
 
   const rawForm = link.form
@@ -177,13 +191,21 @@ async function submitStudentFormFromDb(
 
   const { data: link } = await supabase
     .from('form_links')
-    .select('id, form_id, municipio, school_name, turma')
+    .select('id, form_id, municipio, school_name, turma, available_from, available_until')
     .eq('slug', slug)
     .eq('is_active', true)
     .single()
 
   if (!link) {
     throw new Error('Link inválido')
+  }
+
+  const availability = getFormLinkAvailability(link)
+  if (availability !== 'available') {
+    throw new Error(
+      getFormLinkAvailabilityMessage(link) ||
+        'Este formulário não está disponível no momento.',
+    )
   }
 
   const { data: existing } = await supabase

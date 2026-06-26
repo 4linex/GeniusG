@@ -9,6 +9,7 @@ import type { BuilderQuestion } from '@/components/forms/builder/types'
 import { questionRowToMetadata } from '@/components/forms/builder/types'
 import { metadataToDbFields } from '@/components/forms/builder/types'
 import { needsAlternatives } from '@/types/questionTypes'
+import { mergeLegacyQuestionImage } from '@/lib/richTextImages'
 import { dedupeAlternativesByLetter } from '@/lib/questionAlternatives'
 import { getErrorMessage, syncQuestionAlternatives } from '@/lib/syncQuestionAlternatives'
 import { loadDifficultyLevels, resolveQuestionPointValue } from '@/lib/difficultyLevels'
@@ -83,7 +84,7 @@ async function upsertInlineQuestion(
     title: q.title,
     enunciado: q.enunciado,
     subtitle: q.description || null,
-    image_url: q.imageUrl || null,
+    image_url: null,
     youtube_url: q.youtubeUrl || null,
     creator_notes: q.creatorNotes || null,
     point_value: questionPointValue(q, difficultyLevels),
@@ -125,7 +126,7 @@ async function updateBankQuestionInForm(
     title: q.title,
     enunciado: q.enunciado,
     subtitle: q.description || null,
-    image_url: q.imageUrl || null,
+    image_url: null,
     youtube_url: q.youtubeUrl || null,
     point_value: questionPointValue(q, difficultyLevels),
     ...metadataToDbFields(q.metadata),
@@ -296,9 +297,9 @@ export async function loadFormForBuilder(formId: string) {
       source: q!.is_form_exclusive ? 'inline' : 'bank',
       questionType: q!.question_type || 'multipla_escolha',
       title: q!.title,
-      enunciado: q!.enunciado,
+      enunciado: mergeLegacyQuestionImage(q!.enunciado, q!.image_url),
       description: q!.subtitle || undefined,
-      imageUrl: q!.image_url || null,
+      imageUrl: null,
       youtubeUrl: q!.youtube_url || null,
       creatorNotes: q!.creator_notes || undefined,
       createdBy: q!.created_by || null,

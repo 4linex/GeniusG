@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Select } from '@/components/ui/Select'
 import { DurationInput } from '@/components/ui/DurationInput'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
+import { CollapsibleSection } from '@/components/ui/CollapsibleSection'
 import { Card, CardHeader } from '@/components/ui/Card'
 import {
   ANO_SERIE_MVP,
@@ -18,6 +19,7 @@ import {
 } from '@/types/database'
 import { ensureSkillBankFromQuestionFields } from '@/lib/skillBank'
 import { PedagogicalSkillFields } from '@/components/forms/PedagogicalSkillFields'
+import { mergeLegacyQuestionImage } from '@/lib/richTextImages'
 import { stripHtml } from '@/lib/richText'
 import { needsAlternatives, type QuestionType } from '@/types/questionTypes'
 import { QuestionTypePicker } from '@/components/forms/QuestionTypePicker'
@@ -25,7 +27,7 @@ import { QuestionPreviewModal } from '@/components/questions/QuestionPreview'
 import { AlternativeOptionsEditor } from '@/components/questions/AlternativeOptionsEditor'
 import { createEmptyInlineQuestion } from '@/components/forms/builder/types'
 import { formatDate } from '@/lib/utils'
-import { Upload, Eye, Lock } from 'lucide-react'
+import { Eye, Lock } from 'lucide-react'
 import { dedupeAlternativesByLetter } from '@/lib/questionAlternatives'
 import { getErrorMessage, syncQuestionAlternatives } from '@/lib/syncQuestionAlternatives'
 import { difficultyLevelSelectOptions, resolveQuestionPointValue } from '@/lib/difficultyLevels'
@@ -79,7 +81,6 @@ export function QuestionFormPage({
   const [tempoMedio, setTempoMedio] = useState<number | null>(null)
   const [tipoTextoBase, setTipoTextoBase] = useState('')
   const [fonte, setFonte] = useState('')
-  const [imageUrl, setImageUrl] = useState('')
   const [creatorNotes, setCreatorNotes] = useState('')
   const [createdBy, setCreatedBy] = useState<string | null>(null)
   const [triCalibratedAt, setTriCalibratedAt] = useState<string | null>(null)
@@ -89,7 +90,6 @@ export function QuestionFormPage({
   const [paramAcertoCaso, setParamAcertoCaso] = useState<number | null>(null)
   const [alternatives, setAlternatives] = useState<QuestionAlternative[]>(DEFAULT_ALTERNATIVES)
   const [loading, setLoading] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
 
@@ -123,7 +123,7 @@ export function QuestionFormPage({
       if (question) {
         setQuestionType(question.question_type || 'multipla_escolha')
         setTitle(question.title)
-        setEnunciado(question.enunciado)
+        setEnunciado(mergeLegacyQuestionImage(question.enunciado, question.image_url))
         setCodigoItem(question.codigo_item || '')
         setComponenteCurricular(question.componente_curricular || COMPONENTE_MVP)
         setAnoSerie(question.ano_serie || ANO_SERIE_MVP)
@@ -135,7 +135,6 @@ export function QuestionFormPage({
         setTempoMedio(question.tempo_medio_resolucao ?? null)
         setTipoTextoBase(question.tipo_texto_base || '')
         setFonte(question.fonte || '')
-        setImageUrl(question.image_url || '')
         setCreatedBy(question.created_by || null)
         setTriCalibratedAt(question.tri_calibrated_at || null)
         setTriResponseCount(question.tri_response_count ?? 0)
@@ -164,32 +163,6 @@ export function QuestionFormPage({
     }
     load()
   }, [id, user, profile])
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    setUploading(true)
-    const ext = file.name.split('.').pop()
-    const path = `questions/${Date.now()}.${ext}`
-
-    const { error: uploadError } = await supabase.storage
-      .from('question-images')
-      .upload(path, file)
-
-    if (uploadError) {
-      setError('Erro ao fazer upload da imagem')
-      setUploading(false)
-      return
-    }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('question-images')
-      .getPublicUrl(path)
-
-    setImageUrl(publicUrl)
-    setUploading(false)
-  }
 
   const addAlternative = () => {
     const nextLetter = String.fromCharCode(65 + alternatives.length)
@@ -280,7 +253,7 @@ export function QuestionFormPage({
       tempo_medio_resolucao: tempoMedio,
       tipo_texto_base: tipoTextoBase || null,
       fonte: fonte || null,
-      image_url: imageUrl || null,
+      image_url: null,
       updated_at: new Date().toISOString(),
     }
 
@@ -359,81 +332,24 @@ export function QuestionFormPage({
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr] gap-6 items-start">
-          <Card className="xl:sticky xl:top-8">
-            <QuestionTypePicker value={questionType} onChange={handleTypeChange} />
-          </Card>
+        <div className="grid grid-cols-1 xl:grid-cols-[300px_1fr] gap-6 items-start">
+          <Card className="xl:sticky xl:top-8 xl:self-start xl:max-h-[calc(100dvh-5.5rem)] xl:overflow-y-auto scrollbar-app !p-0 shrink-0">
+            <CollapsibleSection title="Estilo da questão" defaultOpen>
+              <QuestionTypePicker
+                hideHeader
+                compact
+                value={questionType}
+                onChange={handleTypeChange}
+              />
+            </CollapsibleSection>
 
-          <div className="space-y-6">
-            <Card>
-              <h3 className="text-sm font-semibold text-primary-300 mb-4">Conteúdo da Questão</h3>
+            <CollapsibleSection title="Metadados pedagógicos" defaultOpen={false}>
               <div className="space-y-4">
-                <Input label="Título" value={title} onChange={(e) => setTitle(e.target.value)} required />
-                <RichTextEditor
-                  label="Enunciado"
-                  value={enunciado}
-                  onChange={setEnunciado}
-                  minHeight="140px"
+                <Input
+                  label="Código do item"
+                  value={codigoItem}
+                  onChange={(e) => setCodigoItem(e.target.value)}
                 />
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                    Imagem (opcional)
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <label className="cursor-pointer">
-                      <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                      <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-slate-300 hover:bg-white/10 transition-colors">
-                        <Upload size={16} />
-                        {uploading ? 'Enviando...' : 'Upload de imagem'}
-                      </span>
-                    </label>
-                    {imageUrl && (
-                      <img src={imageUrl} alt="Preview" className="h-16 rounded-lg object-cover" />
-                    )}
-                  </div>
-                </div>
-              </div>
-            </Card>
-
-            {needsAlternatives(questionType) && (
-              <Card>
-                <AlternativeOptionsEditor
-                  alternatives={alternatives}
-                  onChangeText={(index, text) => {
-                    const updated = [...alternatives]
-                    updated[index] = { ...updated[index], text }
-                    setAlternatives(updated)
-                  }}
-                  onMarkCorrect={setCorrectAlternative}
-                  onRemove={removeAlternative}
-                  onAdd={addAlternative}
-                />
-              </Card>
-            )}
-
-            {canSeeCreatorNotes && (
-              <Card>
-                <div className="flex items-center gap-2 mb-4">
-                  <Lock size={16} className="text-slate-500" />
-                  <h3 className="text-sm font-semibold text-primary-300">
-                    Anotações do criador (privado)
-                  </h3>
-                </div>
-                <Textarea
-                  label="Gabarito, resolução e observações"
-                  value={creatorNotes}
-                  onChange={(e) => setCreatorNotes(e.target.value)}
-                  placeholder="Registre a resposta correta, resolução comentada e notas pedagógicas. Somente você e administradores podem ver este campo."
-                  className="min-h-[120px]"
-                />
-              </Card>
-            )}
-
-            <Card>
-              <h3 className="text-sm font-semibold text-primary-300 mb-4">Metadados Pedagógicos</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="Código do item" value={codigoItem} onChange={(e) => setCodigoItem(e.target.value)} />
                 <Select
                   label="Componente curricular"
                   value={componenteCurricular}
@@ -483,7 +399,58 @@ export function QuestionFormPage({
                 />
                 <Input label="Fonte" value={fonte} onChange={(e) => setFonte(e.target.value)} />
               </div>
+            </CollapsibleSection>
+          </Card>
+
+          <div className="space-y-6">
+            <Card>
+              <h3 className="text-sm font-semibold text-primary-300 mb-4">Conteúdo da Questão</h3>
+              <div className="space-y-4">
+                <Input label="Título" value={title} onChange={(e) => setTitle(e.target.value)} required />
+                <RichTextEditor
+                  label="Enunciado"
+                  value={enunciado}
+                  onChange={setEnunciado}
+                  minHeight="180px"
+                  enableImages
+                  onImageUploadError={setError}
+                />
+              </div>
             </Card>
+
+            {needsAlternatives(questionType) && (
+              <Card>
+                <AlternativeOptionsEditor
+                  alternatives={alternatives}
+                  onChangeText={(index, text) => {
+                    const updated = [...alternatives]
+                    updated[index] = { ...updated[index], text }
+                    setAlternatives(updated)
+                  }}
+                  onMarkCorrect={setCorrectAlternative}
+                  onRemove={removeAlternative}
+                  onAdd={addAlternative}
+                />
+              </Card>
+            )}
+
+            {canSeeCreatorNotes && (
+              <Card>
+                <div className="flex items-center gap-2 mb-4">
+                  <Lock size={16} className="text-slate-500" />
+                  <h3 className="text-sm font-semibold text-primary-300">
+                    Anotações do criador (privado)
+                  </h3>
+                </div>
+                <Textarea
+                  label="Gabarito, resolução e observações"
+                  value={creatorNotes}
+                  onChange={(e) => setCreatorNotes(e.target.value)}
+                  placeholder="Registre a resposta correta, resolução comentada e notas pedagógicas. Somente você e administradores podem ver este campo."
+                  className="min-h-[120px]"
+                />
+              </Card>
+            )}
 
             {triCalibratedAt && (
               <Card>
@@ -555,7 +522,7 @@ export function QuestionFormPage({
           title,
           enunciado,
           questionType,
-          imageUrl,
+          imageUrl: undefined,
           alternatives: needsAlternatives(questionType) ? alternatives : [],
           metadata: {
             codigo_item: codigoItem,

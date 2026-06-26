@@ -9,6 +9,10 @@ import { GamifiedEmojiBackground } from '@/components/student/GamifiedEmojiBackg
 import type { FormMode } from '@/types/database'
 import { cn } from '@/lib/utils'
 import { requestExamFullscreen } from '@/hooks/useExamLockdown'
+import {
+  getFormLinkAvailability,
+  getFormLinkAvailabilityMessage,
+} from '@/lib/formLinkAvailability'
 
 export function StudentFormAccessPage() {
   const { slug } = useParams()
@@ -33,6 +37,16 @@ export function StudentFormAccessPage() {
 
       if (linkError || !link) {
         setError('Link de formulário inválido ou expirado.')
+        setLoading(false)
+        return
+      }
+
+      const availability = getFormLinkAvailability(link)
+      if (availability !== 'available') {
+        setError(
+          getFormLinkAvailabilityMessage(link) ||
+            'Este formulário não está disponível no momento.',
+        )
         setLoading(false)
         return
       }
@@ -65,12 +79,23 @@ export function StudentFormAccessPage() {
 
     const { data: link } = await supabase
       .from('form_links')
-      .select('form_id')
+      .select('form_id, available_from, available_until')
       .eq('slug', slug)
+      .eq('is_active', true)
       .single()
 
     if (!link) {
       setError('Link inválido')
+      setChecking(false)
+      return
+    }
+
+    const availability = getFormLinkAvailability(link)
+    if (availability !== 'available') {
+      setError(
+        getFormLinkAvailabilityMessage(link) ||
+          'Este formulário não está disponível no momento.',
+      )
       setChecking(false)
       return
     }

@@ -17,7 +17,9 @@
     "supabase:functions": "supabase functions serve",
     "seed:users": "node scripts/seed-users.mjs",
     "seed:schools": "node scripts/seed-schools.mjs",
+    "seed:igarassu-schools": "node scripts/seed-igarassu-schools.mjs",
     "db:migrate:school-classes": "node scripts/apply-school-classes-migration.mjs",
+    "db:migrate:form-link-delete": "node scripts/apply-form-link-delete-migration.mjs",
     "seed:gadelha-questions": "node scripts/seed-gadelha-questions.mjs",
     "seed:lote2-questions": "node scripts/seed-lote2-questions.mjs",
     "seed:lote3-questions": "node scripts/seed-lote2-questions.mjs",
@@ -37,6 +39,7 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.17.0",
+    "recharts": "^3.9.0",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {

@@ -1,12 +1,22 @@
 import { supabase } from '@/lib/supabase'
 import { collectSchoolFilterOptions, formatSchoolMunicipio, listSchools } from '@/lib/schools'
 import { listAllSchoolClasses } from '@/lib/schoolClasses'
-import type { Profile, School } from '@/types/database'
+import {
+  getProfileMunicipios,
+  getProfileSchoolNames,
+  profileLocationCacheKey,
+  rowMatchesProfileLocation,
+  schoolMatchesProfile,
+  type ProfileLocationFields,
+} from '@/lib/profileLocations'
+import type { Profile, School, SchoolClass } from '@/types/database'
 
 export interface DashboardContextFilters {
   municipio?: string
   school_name?: string
   turma?: string
+  dateFrom?: string
+  dateTo?: string
 }
 
 export const EMPTY_DASHBOARD_CONTEXT_FILTERS: DashboardContextFilters = {}
@@ -16,6 +26,43 @@ export interface DashboardFilterOptions {
   escolas: string[]
   turmas: string[]
   schools: School[]
+  schoolClasses: SchoolClass[]
+}
+
+/**
+ * Turmas disponíveis dado o recorte de município/escola, usando as entidades
+ * (school_classes). Quando uma escola é selecionada, mostra apenas as turmas dela;
+ * com apenas o município, mostra as turmas de todas as escolas daquele município.
+ * Sem recorte, retorna a lista completa (entidades + valores legados das respostas).
+ */
+export function getTurmasForScope(
+  options: Pick<DashboardFilterOptions, 'schools' | 'schoolClasses' | 'turmas'>,
+  municipio?: string,
+  schoolName?: string,
+): string[] {
+  const m = norm(municipio)
+  const s = norm(schoolName)
+  if (!m && !s) return options.turmas
+
+  const matchingSchoolIds = new Set(
+    options.schools
+      .filter((school) => {
+        if (m && formatSchoolMunicipio(school) !== m) return false
+        if (s && school.name !== s) return false
+        return true
+      })
+      .map((school) => school.id),
+  )
+
+  const turmas = new Set<string>()
+  for (const cls of options.schoolClasses) {
+    if (matchingSchoolIds.has(cls.school_id)) turmas.add(cls.name)
+  }
+
+  // Se não há entidades para o recorte, cai para a lista geral (valores legados).
+  if (turmas.size === 0) return options.turmas
+
+  return [...turmas].sort((a, b) => a.localeCompare(b, 'pt-BR'))
 }
 
 type ContextRow = {
@@ -42,40 +89,26 @@ export function isScopedAdminRole(role: Profile['role'] | undefined): boolean {
 }
 
 export function profileLocationFilters(
-  profile: Pick<Profile, 'municipio' | 'school_name'> | null | undefined,
+  profile: ProfileLocationFields | null | undefined,
 ): DashboardContextFilters {
   const filters: DashboardContextFilters = {}
-  const municipio = norm(profile?.municipio)
-  const school = norm(profile?.school_name)
-  if (municipio) filters.municipio = municipio
-  if (school) filters.school_name = school
+  const municipios = getProfileMunicipios(profile)
+  const schools = getProfileSchoolNames(profile)
+  if (municipios.length === 1) filters.municipio = municipios[0]
+  if (schools.length === 1) filters.school_name = schools[0]
   return filters
 }
 
 /** Professor e admin: restringe a município/escola do cadastro quando informados. */
 export function applyProfessorProfileScope<T extends ContextRow>(
   rows: T[],
-  profile: Pick<Profile, 'municipio' | 'school_name'> | null | undefined,
+  profile: ProfileLocationFields | null | undefined,
 ): T[] {
   if (!profile) return rows
-
-  const profileMunicipio = norm(profile.municipio)
-  const profileSchool = norm(profile.school_name)
-
-  if (!profileMunicipio && !profileSchool) return rows
-
-  return rows.filter((row) => {
-    const rowMunicipio = norm(row.municipio)
-    const rowSchool = norm(row.school_name)
-
-    if (profileMunicipio) {
-      if (rowMunicipio && rowMunicipio !== profileMunicipio) return false
-    }
-    if (profileSchool) {
-      if (rowSchool && rowSchool !== profileSchool) return false
-    }
-    return true
-  })
+  const municipios = getProfileMunicipios(profile)
+  const schools = getProfileSchoolNames(profile)
+  if (municipios.length === 0 && schools.length === 0) return rows
+  return rows.filter((row) => rowMatchesProfileLocation(row, profile))
 }
 
 /** Professor: restringe às turmas do cadastro quando informadas. */
@@ -96,19 +129,6 @@ export function applyProfileTurmaScope<T extends { turma?: string | null }>(
 
 /** Alias semântico — mesma regra de escopo por localização no perfil. */
 export const applyProfileLocationScope = applyProfessorProfileScope
-
-function schoolMatchesProfile(
-  school: School,
-  profile: Pick<Profile, 'municipio' | 'school_name'> | null | undefined,
-): boolean {
-  const profileMunicipio = norm(profile?.municipio)
-  const profileSchool = norm(profile?.school_name)
-  const schoolMunicipio = `${school.municipio} - ${school.state_uf}`
-
-  if (profileMunicipio && schoolMunicipio !== profileMunicipio) return false
-  if (profileSchool && school.name !== profileSchool) return false
-  return true
-}
 
 /** Admin: filtros opcionais de município, escola e turma (root). */
 export function applyDashboardContextFilters<T extends ContextRow>(
@@ -131,7 +151,7 @@ export function applyDashboardContextFilters<T extends ContextRow>(
 
 export async function getProfessorLinkIds(
   professorId: string,
-  profile?: Pick<Profile, 'municipio' | 'school_name' | 'turmas'> | null,
+  profile?: ProfileLocationFields | null,
 ): Promise<string[]> {
   const { data, error } = await supabase
     .from('form_links')
@@ -146,7 +166,7 @@ export async function getProfessorLinkIds(
 }
 
 export async function loadDashboardFilterOptions(
-  profile?: Pick<Profile, 'role' | 'municipio' | 'school_name'> | null,
+  profile?: Pick<Profile, 'role' | 'turmas'> & ProfileLocationFields | null,
 ): Promise<DashboardFilterOptions> {
   const [{ data: responses }, allSchools, allClasses] = await Promise.all([
     supabase.from('form_responses').select('municipio, school_name, turma'),
@@ -165,8 +185,14 @@ export async function loadDashboardFilterOptions(
   const municipios = new Set(schoolOptions.municipios)
   const escolas = new Set(schoolOptions.escolas)
   const turmas = new Set<string>()
+  const scopedClasses: SchoolClass[] = []
 
-  const profileFilters = profile?.role === 'admin' ? profileLocationFilters(profile) : null
+  const profileFilters =
+    profile?.role === 'admin' || profile?.role === 'professor'
+      ? profileLocationFilters(profile)
+      : null
+  const profileTurmas =
+    profile?.role === 'professor' && profile.turmas?.length ? profile.turmas : null
 
   for (const row of allClasses) {
     if (!schoolIds.has(row.school_id)) continue
@@ -183,11 +209,16 @@ export async function loadDashboardFilterOptions(
       }
     }
     turmas.add(row.name)
+    scopedClasses.push(row)
   }
 
   for (const row of responses || []) {
     if (profileFilters) {
       const scoped = applyProfileLocationScope([row], profile)
+      if (scoped.length === 0) continue
+    }
+    if (profileTurmas) {
+      const scoped = applyProfileTurmaScope([row], profileTurmas)
       if (scoped.length === 0) continue
     }
     const m = norm(row.municipio)
@@ -203,6 +234,7 @@ export async function loadDashboardFilterOptions(
     escolas: [...escolas].sort((a, b) => a.localeCompare(b, 'pt-BR')),
     turmas: [...turmas].sort((a, b) => a.localeCompare(b, 'pt-BR')),
     schools,
+    schoolClasses: scopedClasses,
   }
 }
 
@@ -210,19 +242,34 @@ export function dashboardScopeCacheKey(
   userId: string,
   role: Profile['role'],
   filters: DashboardContextFilters,
-  profile?: Pick<Profile, 'municipio' | 'school_name' | 'turmas'> | null,
+  profile?: ProfileLocationFields | null,
 ): string {
   const f = JSON.stringify({
     municipio: filters.municipio || '',
     school_name: filters.school_name || '',
     turma: filters.turma || '',
+    dateFrom: filters.dateFrom || '',
+    dateTo: filters.dateTo || '',
   })
-  const p = profile
-    ? `${norm(profile.municipio)}|${norm(profile.school_name)}|${(profile.turmas || []).join(',')}`
-    : ''
+  const p = profile ? profileLocationCacheKey(profile) : ''
   return `${userId}:${role}:${f}:${p}`
 }
 
 export function hasDashboardContextFilters(filters: DashboardContextFilters): boolean {
-  return Boolean(filters.municipio || filters.school_name || filters.turma)
+  return Boolean(filters.municipio || filters.school_name || filters.turma || filters.dateFrom || filters.dateTo)
+}
+
+export function applyDashboardDateFilters<T extends { completed_at: string }>(
+  rows: T[],
+  filters: Pick<DashboardContextFilters, 'dateFrom' | 'dateTo'>,
+): T[] {
+  const { dateFrom, dateTo } = filters
+  if (!dateFrom && !dateTo) return rows
+
+  return rows.filter((row) => {
+    const completed = new Date(row.completed_at)
+    if (dateFrom && completed < new Date(`${dateFrom}T00:00:00`)) return false
+    if (dateTo && completed > new Date(`${dateTo}T23:59:59`)) return false
+    return true
+  })
 }

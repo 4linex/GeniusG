@@ -55,8 +55,22 @@ export function RecoveryReportModal({ open, onClose, data, loading }: RecoveryRe
             <h2 className="text-lg font-semibold text-white">Prévia do relatório</h2>
             <p className="text-sm text-slate-400">
               {data?.kind === 'dashboard'
-                ? 'Relatório geral consolidado do dashboard'
-                : 'Layout de Recomposição de Aprendizagem'}
+                ? 'Relatório geral consolidado'
+                : data?.kind === 'municipio'
+                  ? 'Desempenho das escolas do município'
+                  : data?.kind === 'escola'
+                    ? 'Desempenho das turmas, trilhas e TRI'
+                    : data?.kind === 'turma'
+                      ? 'Visão pedagógica da turma'
+                      : data?.kind === 'student'
+                        ? 'Déficits, destaques e ranking por formulário'
+                        : data?.kind === 'studentForm'
+                          ? 'Avaliação individual com trilha recomendada'
+                          : data?.kind === 'form'
+                            ? 'Desempenho da avaliação, déficits, trilhas e TRI'
+                            : data?.kind === 'skills'
+                              ? 'Análise BNCC, SAEB, Bloom e TRI do recorte'
+                              : 'Layout de Recomposição de Aprendizagem'}
             </p>
           </div>
           <div className="flex items-center gap-2">

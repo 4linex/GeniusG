@@ -1,7 +1,17 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { getProfessorLinkIds, applyProfessorProfileScope, applyProfileLocationScope, isScopedAdminRole, profileLocationFilters } from '@/lib/dashboardScope'
+import {
+  getProfessorLinkIds,
+  applyProfessorProfileScope,
+  applyProfileLocationScope,
+  isScopedAdminRole,
+} from '@/lib/dashboardScope'
+import {
+  getProfileMunicipios,
+  getProfileSchoolNames,
+  profileLocationCacheKey,
+} from '@/lib/profileLocations'
 import type { FormResponse } from '@/types/database'
 
 const scopedCache = new Map<string, FormResponse[]>()
@@ -11,7 +21,7 @@ export function useScopedResponses<T extends FormResponse = FormResponse>(
 ) {
   const { user, profile } = useAuth()
   const cacheKey = user && profile
-    ? `${user.id}:${profile.role}:${profile.municipio || ''}:${profile.school_name || ''}:${(profile.turmas || []).join(',')}:${select}`
+    ? `${user.id}:${profile.role}:${profileLocationCacheKey(profile)}:${select}`
     : null
   const cached = cacheKey ? (scopedCache.get(cacheKey) as T[] | undefined) : undefined
 
@@ -24,7 +34,7 @@ export function useScopedResponses<T extends FormResponse = FormResponse>(
       return
     }
 
-    const key = `${user.id}:${profile.role}:${profile.municipio || ''}:${profile.school_name || ''}:${(profile.turmas || []).join(',')}:${select}`
+    const key = `${user.id}:${profile.role}:${profileLocationCacheKey(profile)}:${select}`
     const hit = scopedCache.get(key) as T[] | undefined
     if (hit) {
       setResponses(hit)
@@ -54,9 +64,12 @@ export function useScopedResponses<T extends FormResponse = FormResponse>(
         }
         query = query.in('form_link_id', linkIds)
       } else if (isScopedAdminRole(profile.role)) {
-        const location = profileLocationFilters(profile)
-        if (location.municipio) query = query.eq('municipio', location.municipio)
-        if (location.school_name) query = query.eq('school_name', location.school_name)
+        const municipios = getProfileMunicipios(profile)
+        const schoolNames = getProfileSchoolNames(profile)
+        if (municipios.length === 1) query = query.eq('municipio', municipios[0])
+        else if (municipios.length > 1) query = query.in('municipio', municipios)
+        if (schoolNames.length === 1) query = query.eq('school_name', schoolNames[0])
+        else if (schoolNames.length > 1) query = query.in('school_name', schoolNames)
       }
 
       const { data } = await query

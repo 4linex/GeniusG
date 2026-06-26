@@ -1,4 +1,5 @@
 import { RichTextContent } from '@/components/ui/RichTextContent'
+import { enunciadoHasInlineImage } from '@/lib/richTextImages'
 import { getYoutubeEmbedUrl } from '@/lib/youtube'
 
 export interface StudentQuestionDisplayProps {
@@ -23,6 +24,7 @@ export function StudentQuestionDisplay({
 }: StudentQuestionDisplayProps) {
   const embedUrl = youtubeUrl ? getYoutubeEmbedUrl(youtubeUrl) : null
   const isExam = variant === 'exam'
+  const showLegacyImage = imageUrl && !enunciadoHasInlineImage(enunciado, imageUrl)
 
   return (
     <div className="space-y-4 select-none">
@@ -39,7 +41,7 @@ export function StudentQuestionDisplay({
           className={isExam ? 'mt-4 text-base' : 'text-slate-300 mt-3'}
           emptyFallback="Sem enunciado"
         />
-        {imageUrl && (
+        {showLegacyImage && (
           <img
             src={imageUrl}
             alt=""

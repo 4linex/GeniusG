@@ -12,6 +12,7 @@ import {
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
+import { DatePicker } from '@/components/ui/DatePicker'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { Pagination, paginateSlice } from '@/components/ui/Pagination'
@@ -127,69 +128,105 @@ export function ResponsesPage() {
 
   const [search, setSearch] = useState('')
   const [formFilter, setFormFilter] = useState('')
+  const [municipioFilter, setMunicipioFilter] = useState('')
+  const [escolaFilter, setEscolaFilter] = useState('')
   const [turmaFilter, setTurmaFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
 
-  const students = useMemo(
-    () => groupResponsesByStudent(responses as ResponseRow[]),
-    [responses],
-  )
+  const allResponses = responses as ResponseRow[]
 
-  const forms = useMemo(() => uniqueForms(responses as ResponseRow[]), [responses])
+  const forms = useMemo(() => uniqueForms(allResponses), [allResponses])
+
+  const municipios = useMemo(() => {
+    const set = new Set<string>()
+    for (const r of allResponses) {
+      const m = r.municipio?.trim()
+      if (m) set.add(m)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [allResponses])
+
+  const escolas = useMemo(() => {
+    const set = new Set<string>()
+    for (const r of allResponses) {
+      if (municipioFilter && (r.municipio?.trim() || '') !== municipioFilter) continue
+      const s = r.school_name?.trim()
+      if (s) set.add(s)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [allResponses, municipioFilter])
 
   const turmas = useMemo(() => {
     const set = new Set<string>()
-    for (const s of students) {
-      if (s.turma) set.add(s.turma)
+    for (const r of allResponses) {
+      if (municipioFilter && (r.municipio?.trim() || '') !== municipioFilter) continue
+      if (escolaFilter && (r.school_name?.trim() || '') !== escolaFilter) continue
+      const t = r.turma?.trim()
+      if (t) set.add(t)
     }
-    return Array.from(set).sort()
-  }, [students])
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [allResponses, municipioFilter, escolaFilter])
+
+  // Respostas dentro do recorte de localização/formulário/período (nível de resposta).
+  const scopedResponses = useMemo(() => {
+    return allResponses.filter((r) => {
+      if (formFilter && r.form_id !== formFilter) return false
+      if (municipioFilter && (r.municipio?.trim() || '') !== municipioFilter) return false
+      if (escolaFilter && (r.school_name?.trim() || '') !== escolaFilter) return false
+      if (turmaFilter && (r.turma?.trim() || '') !== turmaFilter) return false
+      const date = new Date(r.completed_at)
+      if (dateFrom && date < new Date(`${dateFrom}T00:00:00`)) return false
+      if (dateTo && date > new Date(`${dateTo}T23:59:59`)) return false
+      return true
+    })
+  }, [allResponses, formFilter, municipioFilter, escolaFilter, turmaFilter, dateFrom, dateTo])
+
+  const students = useMemo(() => groupResponsesByStudent(scopedResponses), [scopedResponses])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
 
     return students.filter((s) => {
-      if (formFilter) {
-        const inForm = (responses as ResponseRow[]).some(
-          (r) => r.form_id === formFilter && r.student_email === s.student_email,
-        )
-        if (!inForm) return false
-      }
       if (q) {
         const haystack = `${s.student_name} ${s.student_email} ${s.turma ?? ''}`.toLowerCase()
         if (!haystack.includes(q)) return false
       }
-      if (turmaFilter && s.turma !== turmaFilter) return false
       if (statusFilter && getPerformanceStatus(s.avgTct) !== statusFilter) return false
-
-      const lastDate = new Date(s.lastCompletedAt)
-      if (dateFrom && lastDate < new Date(`${dateFrom}T00:00:00`)) return false
-      if (dateTo && lastDate > new Date(`${dateTo}T23:59:59`)) return false
-
       return true
     })
-  }, [students, responses, search, formFilter, turmaFilter, statusFilter, dateFrom, dateTo])
+  }, [students, search, statusFilter])
+
+  const handleMunicipioChange = (value: string) => {
+    setMunicipioFilter(value)
+    setEscolaFilter('')
+    setTurmaFilter('')
+    setPage(1)
+  }
+
+  const handleEscolaChange = (value: string) => {
+    setEscolaFilter(value)
+    setTurmaFilter('')
+    setPage(1)
+  }
 
   const chartData = useMemo(() => {
     const emails = new Set(filtered.map((s) => s.student_email))
-    const scoped = (responses as ResponseRow[]).filter((r) => emails.has(r.student_email))
+    const scoped = scopedResponses.filter((r) => emails.has(r.student_email))
     const statusCounts = { excelente: 0, bom: 0, regular: 0, atencao: 0 }
     for (const s of filtered) {
       statusCounts[getPerformanceStatus(s.avgTct)]++
     }
     return { scoped, statusCounts, tctBuckets: buildTctBuckets(scoped) }
-  }, [filtered, responses])
+  }, [filtered, scopedResponses])
 
   const stats = useMemo(() => {
     const emails = new Set(filtered.map((s) => s.student_email))
-    const scopedResponses = (responses as ResponseRow[]).filter((r) =>
-      emails.has(r.student_email),
-    )
+    const scoped = scopedResponses.filter((r) => emails.has(r.student_email))
 
-    const tctValues = scopedResponses
+    const tctValues = scoped
       .map((r) => r.percentual_acerto)
       .filter((v): v is number => v != null)
 
@@ -223,6 +260,8 @@ export function ResponsesPage() {
   const clearFilters = () => {
     setSearch('')
     setFormFilter('')
+    setMunicipioFilter('')
+    setEscolaFilter('')
     setTurmaFilter('')
     setStatusFilter('')
     setDateFrom('')
@@ -230,7 +269,15 @@ export function ResponsesPage() {
     setPage(1)
   }
 
-  const hasFilters = search || formFilter || turmaFilter || statusFilter || dateFrom || dateTo
+  const hasFilters =
+    search ||
+    formFilter ||
+    municipioFilter ||
+    escolaFilter ||
+    turmaFilter ||
+    statusFilter ||
+    dateFrom ||
+    dateTo
 
   if (loading && responses.length === 0) {
     return (
@@ -285,6 +332,30 @@ export function ResponsesPage() {
             ]}
             className="min-w-[140px]"
           />
+          {municipios.length > 0 && (
+            <Select
+              label="Município"
+              size="sm"
+              value={municipioFilter}
+              onChange={(e) => handleMunicipioChange(e.target.value)}
+              options={[
+                { value: '', label: 'Todos' },
+                ...municipios.map((m) => ({ value: m, label: m })),
+              ]}
+              className="min-w-[140px]"
+            />
+          )}
+          <Select
+            label="Escola"
+            size="sm"
+            value={escolaFilter}
+            onChange={(e) => handleEscolaChange(e.target.value)}
+            options={[
+              { value: '', label: municipioFilter ? 'Todas do município' : 'Todas' },
+              ...escolas.map((s) => ({ value: s, label: s })),
+            ]}
+            className="min-w-[140px]"
+          />
           <Select
             label="Turma"
             size="sm"
@@ -294,7 +365,10 @@ export function ResponsesPage() {
               setPage(1)
             }}
             options={[
-              { value: '', label: 'Todas' },
+              {
+                value: '',
+                label: escolaFilter ? 'Todas da escola' : 'Todas',
+              },
               ...turmas.map((t) => ({ value: t, label: t })),
             ]}
             className="min-w-[140px]"
@@ -316,23 +390,21 @@ export function ResponsesPage() {
             ]}
             className="min-w-[140px]"
           />
-          <Input
+          <DatePicker
             label="Período (de)"
             size="sm"
-            type="date"
             value={dateFrom}
-            onChange={(e) => {
-              setDateFrom(e.target.value)
+            onChange={(v) => {
+              setDateFrom(v)
               setPage(1)
             }}
           />
-          <Input
+          <DatePicker
             label="Período (até)"
             size="sm"
-            type="date"
             value={dateTo}
-            onChange={(e) => {
-              setDateTo(e.target.value)
+            onChange={(v) => {
+              setDateTo(v)
               setPage(1)
             }}
           />

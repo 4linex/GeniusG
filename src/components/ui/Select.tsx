@@ -143,7 +143,7 @@ export function Select({
     : null
 
   return (
-    <FieldWrapper label={label} error={error} id={selectId}>
+    <FieldWrapper label={label} error={error} id={selectId} className={className}>
       <div ref={rootRef} className="relative">
         <button
           ref={buttonRef}
@@ -161,7 +161,6 @@ export function Select({
             size === 'default' && 'px-4 py-2.5 text-sm',
             size === 'sm' && 'px-3 py-1.5 text-xs',
             error && 'border-red-500',
-            className,
           )}
           {...props}
         >

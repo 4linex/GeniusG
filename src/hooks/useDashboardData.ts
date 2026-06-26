@@ -5,6 +5,7 @@ import { loadTriByFormChart, type TriFormChartRow } from '@/lib/formAssessmentRe
 import { loadTrailDistribution, type TrailDistributionRow } from '@/lib/trailDistribution'
 import {
   applyDashboardContextFilters,
+  applyDashboardDateFilters,
   applyProfessorProfileScope,
   applyProfileTurmaScope,
   applyProfileLocationScope,
@@ -136,6 +137,7 @@ export function useDashboardData(
     escolas: [],
     turmas: [],
     schools: [],
+    schoolClasses: [],
   })
   const [filterOptionsLoading, setFilterOptionsLoading] = useState(false)
   const [loading, setLoading] = useState(!cached)
@@ -158,11 +160,9 @@ export function useDashboardData(
     setError(null)
 
     try {
-      if (isRootRole(role) || isScopedAdminRole(role)) {
+      if (isRootRole(role) || isScopedAdminRole(role) || role === 'professor') {
         setFilterOptionsLoading(true)
-        loadDashboardFilterOptions(
-          profile ? { role, municipio: profile.municipio, school_name: profile.school_name } : undefined,
-        )
+        loadDashboardFilterOptions(profile ? { ...profile, role } : undefined)
           .then(setFilterOptions)
           .finally(() => setFilterOptionsLoading(false))
       }
@@ -280,19 +280,19 @@ export function useDashboardData(
         linkList = applyProfessorProfileScope(linkList, profile)
         responseList = applyProfileTurmaScope(responseList, profile?.turmas)
         linkList = applyProfileTurmaScope(linkList, profile?.turmas)
+        responseList = applyDashboardContextFilters(responseList, contextFilters)
+        linkList = applyDashboardContextFilters(linkList, contextFilters)
       } else if (isScopedAdminRole(role)) {
         responseList = applyProfileLocationScope(responseList, profile)
         linkList = applyProfileLocationScope(linkList, profile)
-        if (contextFilters.turma) {
-          responseList = applyDashboardContextFilters(responseList, {
-            turma: contextFilters.turma,
-          })
-          linkList = applyDashboardContextFilters(linkList, { turma: contextFilters.turma })
-        }
+        responseList = applyDashboardContextFilters(responseList, contextFilters)
+        linkList = applyDashboardContextFilters(linkList, contextFilters)
       } else if (isRootRole(role)) {
         linkList = applyDashboardContextFilters(linkList, contextFilters)
         responseList = applyDashboardContextFilters(responseList, contextFilters)
       }
+
+      responseList = applyDashboardDateFilters(responseList, contextFilters)
 
       const scopedFormIdSet = new Set(responseList.map((r) => r.form_id))
       const visibleForms = (forms || []).filter((f) => scopedFormIdSet.has(f.id))

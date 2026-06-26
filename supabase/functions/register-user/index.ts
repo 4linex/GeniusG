@@ -6,13 +6,29 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function uniqueStrings(values: unknown[]): string[] {
+  return [...new Set(values.map((v) => String(v).trim()).filter(Boolean))]
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { email, password, full_name, role, municipio, school_name, school_id, turmas } = await req.json()
+    const {
+      email,
+      password,
+      full_name,
+      role,
+      municipio,
+      school_name,
+      school_id,
+      turmas,
+      municipios,
+      school_names,
+      school_ids,
+    } = await req.json()
 
     if (!email || !password || !full_name || !role) {
       return new Response(
@@ -90,31 +106,46 @@ serve(async (req) => {
       )
     }
 
-    let resolvedMunicipio = municipio?.trim() || null
-    let resolvedSchoolName = school_name?.trim() || null
-    let resolvedSchoolId = school_id || null
+    let resolvedMunicipios = Array.isArray(municipios)
+      ? uniqueStrings(municipios)
+      : municipio?.trim()
+        ? [municipio.trim()]
+        : []
 
-    if (school_id) {
-      const { data: school, error: schoolError } = await supabaseAdmin
+    let resolvedSchoolNames = Array.isArray(school_names)
+      ? uniqueStrings(school_names)
+      : school_name?.trim()
+        ? [school_name.trim()]
+        : []
+
+    let resolvedSchoolIds = Array.isArray(school_ids)
+      ? [...new Set(school_ids.filter(Boolean))]
+      : school_id
+        ? [school_id]
+        : []
+
+    if (resolvedSchoolIds.length > 0) {
+      const { data: schoolsData, error: schoolError } = await supabaseAdmin
         .from('schools')
         .select('id, name, municipio, state_uf')
-        .eq('id', school_id)
-        .single()
+        .in('id', resolvedSchoolIds)
 
-      if (schoolError || !school) {
+      if (schoolError || !schoolsData || schoolsData.length !== resolvedSchoolIds.length) {
         return new Response(
-          JSON.stringify({ error: 'Escola não encontrada' }),
+          JSON.stringify({ error: 'Uma ou mais escolas não foram encontradas' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         )
       }
 
-      resolvedMunicipio = `${school.municipio} - ${school.state_uf}`
-      resolvedSchoolName = school.name
-      resolvedSchoolId = school.id
+      resolvedSchoolNames = schoolsData.map((s) => s.name)
+      resolvedMunicipios = [
+        ...new Set(schoolsData.map((s) => `${s.municipio} - ${s.state_uf}`)),
+      ]
+      resolvedSchoolIds = schoolsData.map((s) => s.id)
     }
 
     const resolvedTurmas = Array.isArray(turmas)
-      ? [...new Set(turmas.map((t: unknown) => String(t).trim()).filter(Boolean))]
+      ? uniqueStrings(turmas)
       : []
 
     await supabaseAdmin
@@ -122,9 +153,12 @@ serve(async (req) => {
       .update({
         full_name,
         role,
-        municipio: resolvedMunicipio,
-        school_name: resolvedSchoolName,
-        school_id: resolvedSchoolId,
+        municipio: resolvedMunicipios[0] || null,
+        school_name: resolvedSchoolNames[0] || null,
+        school_id: resolvedSchoolIds[0] || null,
+        municipios: resolvedMunicipios,
+        school_names: resolvedSchoolNames,
+        school_ids: resolvedSchoolIds,
         turmas: role === 'professor' ? resolvedTurmas : [],
       })
       .eq('id', newUser.user.id)

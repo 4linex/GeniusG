@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { looksLikeHtml, normalizeRichTextHtml, stripHtml } from '@/lib/richText'
+import { isRichTextEmpty, looksLikeHtml, normalizeRichTextHtml } from '@/lib/richText'
 
 interface RichTextContentProps {
   html: string
@@ -17,7 +17,7 @@ export function RichTextContent({
 }: RichTextContentProps) {
   const toneClass = tone === 'light' ? 'rich-text-content--light' : ''
 
-  if (!stripHtml(rawHtml)) {
+  if (isRichTextEmpty(rawHtml)) {
     return emptyFallback ? (
       <p className={cn('italic', tone === 'light' ? 'text-gray-500' : 'text-slate-500', className)}>
         {emptyFallback}

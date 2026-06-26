@@ -9,27 +9,74 @@ import { Badge } from '@/components/ui/Badge'
 import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal'
 import { FormModal } from '@/components/ui/FormModal'
 import { formatDate } from '@/lib/utils'
-import type { Profile, UserRole } from '@/types/database'
+import type { Profile, School, UserRole } from '@/types/database'
 import { ROLE_LABELS } from '@/types/database'
-import { UserPlus, Trash2 } from 'lucide-react'
+import { UserPlus, Trash2, Pencil } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { SchoolPicker, type SchoolSelection } from '@/components/schools/SchoolPicker'
-import { SchoolTurmasMultiPicker } from '@/components/schools/SchoolTurmasMultiPicker'
-import { listSchoolClasses } from '@/lib/schoolClasses'
+import {
+  ProfileLocationsPicker,
+  type ProfileLocationsValue,
+} from '@/components/schools/ProfileLocationsPicker'
+import { listAllSchoolClasses } from '@/lib/schoolClasses'
+import { formatSchoolMunicipio } from '@/lib/schools'
+import {
+  getProfileMunicipios,
+  getProfileSchoolIds,
+  getProfileSchoolNames,
+} from '@/lib/profileLocations'
 import { useSchools } from '@/hooks/useSchools'
 
+const EMPTY_LOCATIONS: ProfileLocationsValue = {
+  municipios: [],
+  schoolIds: [],
+  turmas: [],
+}
+
+function formatProfileLocations(profile: Profile): string | null {
+  const parts: string[] = []
+  const municipios = getProfileMunicipios(profile)
+  const schools = getProfileSchoolNames(profile)
+  if (municipios.length) parts.push(municipios.join(', '))
+  if (schools.length) parts.push(schools.join(', '))
+  if (profile.turmas?.length) parts.push(`Turmas: ${profile.turmas.join(', ')}`)
+  return parts.length ? parts.join(' · ') : null
+}
+
+function resolveLocationsFromProfile(profile: Profile, schools: School[]): ProfileLocationsValue {
+  let schoolIds = getProfileSchoolIds(profile)
+  if (schoolIds.length === 0) {
+    const names = getProfileSchoolNames(profile)
+    schoolIds = schools.filter((s) => names.includes(s.name)).map((s) => s.id)
+  }
+  return {
+    municipios: getProfileMunicipios(profile),
+    schoolIds,
+    turmas: profile.turmas ?? [],
+  }
+}
+
+function canManageTarget(
+  target: Profile,
+  currentUserId: string | undefined,
+  isRoot: boolean,
+): boolean {
+  if (target.id === currentUserId) return false
+  if (target.role === 'root') return false
+  if (isRoot) return target.role === 'professor' || target.role === 'admin'
+  return target.role === 'professor'
+}
+
 export function UsersSection() {
-  const { user, registerUser, deleteUser, hasRole } = useAuth()
+  const { user, registerUser, updateUser, deleteUser, hasRole } = useAuth()
   const [users, setUsers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [editingUser, setEditingUser] = useState<Profile | null>(null)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const { schools, loading: schoolsLoading } = useSchools()
-  const [schoolSelection, setSchoolSelection] = useState<SchoolSelection | null>(null)
-  const [selectedTurmas, setSelectedTurmas] = useState<string[]>([])
-  const [schoolHasClasses, setSchoolHasClasses] = useState(false)
+  const [locations, setLocations] = useState<ProfileLocationsValue>(EMPTY_LOCATIONS)
   const [role, setRole] = useState<UserRole>('professor')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -38,6 +85,7 @@ export function UsersSection() {
   const [deleting, setDeleting] = useState(false)
 
   const isRoot = hasRole('root')
+  const isEditing = Boolean(editingUser)
 
   const loadUsers = async () => {
     setLoading(true)
@@ -58,41 +106,13 @@ export function UsersSection() {
 
   useRefreshOnFocus(loadUsers, true)
 
-  useEffect(() => {
-    if (!schoolSelection?.schoolId) {
-      setSelectedTurmas([])
-      setSchoolHasClasses(false)
-      return
-    }
-
-    let cancelled = false
-    listSchoolClasses(schoolSelection.schoolId)
-      .then((rows) => {
-        if (cancelled) return
-        const names = rows.map((row) => row.name)
-        setSchoolHasClasses(names.length > 0)
-        setSelectedTurmas((prev) => prev.filter((name) => names.includes(name)))
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSchoolHasClasses(false)
-          setSelectedTurmas([])
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [schoolSelection?.schoolId])
-
   const resetForm = () => {
     setFullName('')
     setEmail('')
     setPassword('')
-    setSchoolSelection(null)
-    setSelectedTurmas([])
-    setSchoolHasClasses(false)
+    setLocations(EMPTY_LOCATIONS)
     setRole('professor')
+    setEditingUser(null)
     setError('')
   }
 
@@ -102,54 +122,107 @@ export function UsersSection() {
     setShowForm(true)
   }
 
-  const closeCreateModal = () => {
+  const openEditModal = (profile: Profile) => {
+    setEditingUser(profile)
+    setFullName(profile.full_name)
+    setEmail(profile.email)
+    setPassword('')
+    setRole(profile.role)
+    setLocations(resolveLocationsFromProfile(profile, schools))
+    setError('')
+    setSuccess('')
+    setShowForm(true)
+  }
+
+  const closeFormModal = () => {
     setShowForm(false)
     resetForm()
+  }
+
+  const validateLocations = async (): Promise<string | null> => {
+    if ((role === 'professor' || role === 'admin') && locations.schoolIds.length === 0) {
+      return role === 'professor'
+        ? 'Selecione ao menos uma escola do professor'
+        : 'Selecione ao menos uma escola ou município do administrador'
+    }
+
+    if (role === 'professor' && locations.schoolIds.length > 0) {
+      const allClasses = await listAllSchoolClasses()
+      const schoolIdSet = new Set(locations.schoolIds)
+      const hasClasses = allClasses.some((row) => schoolIdSet.has(row.school_id))
+      if (hasClasses && locations.turmas.length === 0) {
+        return 'Selecione ao menos uma turma do professor'
+      }
+    }
+
+    return null
+  }
+
+  const buildLocationPayload = () => {
+    const selectedSchools = schools.filter((s) => locations.schoolIds.includes(s.id))
+    const municipios =
+      locations.municipios.length > 0
+        ? locations.municipios
+        : [...new Set(selectedSchools.map((s) => formatSchoolMunicipio(s)))]
+
+    return {
+      municipios,
+      school_names: selectedSchools.map((s) => s.name),
+      school_ids: locations.schoolIds,
+      turmas: role === 'professor' ? locations.turmas : undefined,
+      municipio: municipios[0],
+      school_name: selectedSchools[0]?.name,
+      school_id: locations.schoolIds[0],
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setSuccess('')
-    if ((role === 'professor' || role === 'admin') && !schoolSelection) {
-      setError(
-        role === 'professor'
-          ? 'Selecione a escola do professor'
-          : 'Selecione a escola ou município do administrador',
-      )
+
+    const validationError = await validateLocations()
+    if (validationError) {
+      setError(validationError)
       return
     }
-    if (role === 'professor' && schoolHasClasses && selectedTurmas.length === 0) {
-      setError('Selecione ao menos uma turma do professor')
-      return
-    }
+
+    const locationPayload = buildLocationPayload()
+
     setSubmitting(true)
     try {
-      await registerUser({
-        email,
-        password,
-        full_name: fullName,
-        role,
-        municipio: schoolSelection?.municipio,
-        school_name: schoolSelection?.schoolName,
-        school_id: schoolSelection?.schoolId,
-        turmas: role === 'professor' ? selectedTurmas : undefined,
-      })
-      setSuccess('Usuário cadastrado com sucesso!')
-      closeCreateModal()
+      if (isEditing && editingUser) {
+        await updateUser({
+          user_id: editingUser.id,
+          email,
+          full_name: fullName,
+          role,
+          ...locationPayload,
+          ...(password.trim() ? { password } : {}),
+        })
+        setSuccess('Usuário atualizado com sucesso!')
+      } else {
+        if (!password.trim()) {
+          setError('Informe uma senha para o novo usuário')
+          setSubmitting(false)
+          return
+        }
+        await registerUser({
+          email,
+          password,
+          full_name: fullName,
+          role,
+          ...locationPayload,
+        })
+        setSuccess('Usuário cadastrado com sucesso!')
+      }
+      closeFormModal()
       loadUsers()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao cadastrar')
+      setError(err instanceof Error ? err.message : isEditing ? 'Erro ao atualizar' : 'Erro ao cadastrar')
     } finally {
       setSubmitting(false)
     }
-  }
-
-  const canDelete = (target: Profile) => {
-    if (target.id === user?.id) return false
-    if (target.role === 'root') return false
-    if (isRoot) return target.role === 'professor' || target.role === 'admin'
-    return target.role === 'professor'
   }
 
   const handleConfirmDelete = async () => {
@@ -181,8 +254,8 @@ export function UsersSection() {
           <h2 className="text-lg font-semibold text-white">Usuários</h2>
           <p className="text-sm text-slate-400 mt-1">
             {isRoot
-              ? 'Cadastro e exclusão de usuários (professor ou administrador)'
-              : 'Cadastro e exclusão de usuários com perfil professor'}
+              ? 'Cadastro, edição e exclusão de usuários (professor ou administrador)'
+              : 'Cadastro, edição e exclusão de usuários com perfil professor'}
           </p>
         </div>
         <Button onClick={openCreateModal}>
@@ -199,24 +272,27 @@ export function UsersSection() {
 
       <FormModal
         open={showForm}
-        onClose={closeCreateModal}
-        title="Novo usuário"
+        onClose={closeFormModal}
+        title={isEditing ? 'Editar usuário' : 'Novo usuário'}
         description={
-          isRoot
-            ? 'Cadastre um professor ou administrador no sistema.'
-            : 'Cadastre um usuário com perfil professor.'
+          isEditing
+            ? 'Altere os dados do perfil. Deixe a senha em branco para mantê-la.'
+            : isRoot
+              ? 'Cadastre um professor ou administrador no sistema.'
+              : 'Cadastre um usuário com perfil professor.'
         }
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input label="Nome completo" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
           <Input label="E-mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           <Input
-            label="Senha"
+            label={isEditing ? 'Nova senha (opcional)' : 'Senha'}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
+            required={!isEditing}
+            minLength={isEditing ? undefined : 6}
+            placeholder={isEditing ? 'Deixe em branco para não alterar' : undefined}
           />
           <Select
             label="Perfil de acesso"
@@ -225,39 +301,33 @@ export function UsersSection() {
               const nextRole = e.target.value as UserRole
               setRole(nextRole)
               if (nextRole !== 'professor' && nextRole !== 'admin') {
-                setSchoolSelection(null)
-                setSelectedTurmas([])
+                setLocations(EMPTY_LOCATIONS)
               }
-              if (nextRole !== 'professor') setSelectedTurmas([])
+              if (nextRole !== 'professor') {
+                setLocations((prev) => ({ ...prev, turmas: [] }))
+              }
             }}
             options={roleOptions}
+            disabled={isEditing && !isRoot}
           />
           {(role === 'professor' || role === 'admin') && (
-            <SchoolPicker
+            <ProfileLocationsPicker
               schools={schools}
               loading={schoolsLoading}
-              value={schoolSelection}
-              onChange={setSchoolSelection}
-              required
-              label={role === 'admin' ? 'Área de responsabilidade' : 'Escola'}
-            />
-          )}
-          {role === 'professor' && (
-            <SchoolTurmasMultiPicker
-              schoolId={schoolSelection?.schoolId}
-              value={selectedTurmas}
-              onChange={setSelectedTurmas}
-              required={schoolHasClasses}
+              value={locations}
+              onChange={setLocations}
               disabled={submitting}
+              showTurmas={role === 'professor'}
+              requireTurmas={role === 'professor'}
             />
           )}
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex gap-3 justify-end pt-2">
-            <Button type="button" variant="secondary" onClick={closeCreateModal}>
+            <Button type="button" variant="secondary" onClick={closeFormModal}>
               Cancelar
             </Button>
             <Button type="submit" loading={submitting}>
-              Cadastrar usuário
+              {isEditing ? 'Salvar alterações' : 'Cadastrar usuário'}
             </Button>
           </div>
         </form>
@@ -277,38 +347,39 @@ export function UsersSection() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {users.map((profile) => (
-            <Card key={profile.id} hover>
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-medium text-white">{profile.full_name}</h3>
-                    <Badge variant="info">{ROLE_LABELS[profile.role]}</Badge>
+          {users.map((profile) => {
+            const locationLabel = formatProfileLocations(profile)
+            const manageable = canManageTarget(profile, user?.id, isRoot)
+            return (
+              <Card key={profile.id} hover>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-medium text-white">{profile.full_name}</h3>
+                      <Badge variant="info">{ROLE_LABELS[profile.role]}</Badge>
+                    </div>
+                    <p className="text-sm text-slate-400">{profile.email}</p>
+                    {locationLabel && (
+                      <p className="text-xs text-slate-500 mt-1">{locationLabel}</p>
+                    )}
                   </div>
-                  <p className="text-sm text-slate-400">{profile.email}</p>
-                  {(profile.municipio || profile.school_name || profile.turmas?.length) && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      {[
-                        profile.municipio,
-                        profile.school_name,
-                        profile.turmas?.length ? `Turmas: ${profile.turmas.join(', ')}` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-slate-500 hidden sm:block">{formatDate(profile.created_at)}</p>
+                    {manageable && (
+                      <Button variant="ghost" size="sm" onClick={() => openEditModal(profile)} title="Editar usuário">
+                        <Pencil size={16} className="text-primary-400" />
+                      </Button>
+                    )}
+                    {manageable && (
+                      <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(profile)} title="Excluir usuário">
+                        <Trash2 size={16} className="text-red-400" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <p className="text-xs text-slate-500">{formatDate(profile.created_at)}</p>
-                  {canDelete(profile) && (
-                    <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(profile)}>
-                      <Trash2 size={16} className="text-red-400" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            )
+          })}
         </div>
       )}
 

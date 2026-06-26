@@ -10,9 +10,9 @@ export function getSupabaseConfigError(): string | null {
   if (isSupabaseConfigured) return null
   if (import.meta.env.PROD) {
     return (
-      'Supabase não foi configurado neste deploy. No Cloudflare Pages, em Settings → ' +
-      'Variables and secrets (Production), defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY ' +
-      'e faça um novo deploy (Retry deployment).'
+      'Supabase não foi configurado neste deploy. No Cloudflare Pages → Settings → ' +
+      'Environment variables, defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY em ' +
+      'Preview e Production (sem commitar .env no Git). Depois: Retry deployment.'
     )
   }
   return (

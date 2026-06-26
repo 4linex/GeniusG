@@ -49,7 +49,7 @@ export async function exportRecoveryReportFromData(data: RecoveryReportData, fil
     <meta charset="utf-8" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #ffffff; }
+      body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f1f5f9; }
     </style>
   </head>
   <body>${reportHtml}</body>
@@ -70,7 +70,7 @@ export async function exportRecoveryReportFromData(data: RecoveryReportData, fil
 
     const canvas = await html2canvas(root, {
       scale: 2,
-      backgroundColor: '#ffffff',
+      backgroundColor: '#f1f5f9',
       logging: false,
       useCORS: true,
       width,

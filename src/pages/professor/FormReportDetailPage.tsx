@@ -21,7 +21,6 @@ import {
   type SkillBreakdownRow,
 } from '@/lib/formAssessmentReport'
 import { resolveScopedFormIds, canAccessForm } from '@/lib/scopedForms'
-import { isRootRole } from '@/lib/dashboardScope'
 import { formatDate, formatScore } from '@/lib/utils'
 import { Pagination, paginateSlice } from '@/components/ui/Pagination'
 import { NIVEL_PROFICIENCIA_LABELS } from '@/lib/scoring'
@@ -136,7 +135,7 @@ export function FormReportDetailPage() {
     setReportOpen(true)
     setReportLoading(true)
     try {
-      setReportData(await buildFormRecoveryReport(formId))
+      setReportData(await buildFormRecoveryReport(formId, filters))
     } finally {
       setReportLoading(false)
     }
@@ -192,7 +191,8 @@ export function FormReportDetailPage() {
         onChange={setFilters}
         students={studentOptions}
         showForm={false}
-        showScope={isRootRole(profile?.role)}
+        showScope
+        scopeProfile={profile}
         searchPlaceholder="Buscar aluno..."
       />
 

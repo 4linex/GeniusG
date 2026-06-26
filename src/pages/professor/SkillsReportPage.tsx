@@ -12,7 +12,6 @@ import { TriByFormChart } from '@/components/dashboard/TriByFormChart'
 import { ProficiencyLevelChart } from '@/components/dashboard/ProficiencyLevelChart'
 import { buildSkillsRecoveryReport } from '@/lib/recoveryReport'
 import type { RecoveryReportData } from '@/lib/recoveryReport'
-import { isRootRole } from '@/lib/dashboardScope'
 import { resolveScopedFormIds } from '@/lib/scopedForms'
 import { useAuth } from '@/contexts/AuthContext'
 import { NIVEL_PROFICIENCIA_LABELS } from '@/lib/scoring'
@@ -161,7 +160,8 @@ export function SkillsReportPage() {
         onChange={setFilters}
         forms={forms}
         students={students}
-        showScope={isRootRole(profile?.role)}
+        showScope
+        scopeProfile={profile}
         searchPlaceholder="Buscar habilidade, aluno ou formulário..."
       />
 

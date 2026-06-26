@@ -3,7 +3,7 @@ import type { SkillBreakdownRow } from '@/lib/formAssessmentReport'
 import type { TriFormChartRow } from '@/lib/formAssessmentReport'
 import { getPerformanceStatus } from '@/hooks/useScopedResponses'
 
-export type ReportScopeType = 'all' | 'municipio' | 'escola'
+export type ReportScopeType = 'all' | 'municipio' | 'escola' | 'turma'
 
 export interface ReportFilters {
   formId?: string
@@ -14,6 +14,7 @@ export interface ReportFilters {
   scopeType?: ReportScopeType
   municipio?: string
   school_name?: string
+  turma?: string
 }
 
 export type ResponseWithForm = FormResponse & {
@@ -82,6 +83,16 @@ export function applyReportFilters(
     if (scopeType === 'escola') {
       if (filters.municipio && normContext(r.municipio) !== filters.municipio) return false
       if (filters.school_name && normContext(r.school_name) !== filters.school_name) return false
+    }
+
+    if (scopeType === 'turma' && filters.turma) {
+      if (normContext(r.turma) !== filters.turma) return false
+      if (filters.municipio && normContext(r.municipio) !== filters.municipio) return false
+      if (filters.school_name && normContext(r.school_name) !== filters.school_name) return false
+    }
+
+    if (filters.turma && scopeType !== 'turma' && normContext(r.turma) !== filters.turma) {
+      return false
     }
 
     if (q) {
@@ -183,8 +194,12 @@ export function avgTct(responses: ResponseWithForm[]) {
 }
 
 export function reportScopeLabel(
-  filters: Pick<ReportFilters, 'scopeType' | 'municipio' | 'school_name'>,
+  filters: Pick<ReportFilters, 'scopeType' | 'municipio' | 'school_name' | 'turma'>,
 ): string {
+  if (filters.scopeType === 'turma' && filters.turma) {
+    const parts = [filters.turma, filters.school_name, filters.municipio].filter(Boolean)
+    return parts.join(' · ')
+  }
   if (filters.scopeType === 'municipio' && filters.municipio) {
     return filters.municipio
   }
@@ -197,6 +212,26 @@ export function reportScopeLabel(
   return 'Todas as escolas'
 }
 
+export function formatReportPeriod(
+  responses: { completed_at: string }[],
+  filters?: Pick<ReportFilters, 'dateFrom' | 'dateTo'>,
+): string | undefined {
+  if (filters?.dateFrom || filters?.dateTo) {
+    const from = filters.dateFrom
+      ? new Intl.DateTimeFormat('pt-BR').format(new Date(`${filters.dateFrom}T12:00:00`))
+      : 'início'
+    const to = filters.dateTo
+      ? new Intl.DateTimeFormat('pt-BR').format(new Date(`${filters.dateTo}T12:00:00`))
+      : 'hoje'
+    return `${from} — ${to}`
+  }
+
+  const dates = responses.map((r) => r.completed_at).sort()
+  if (dates.length === 0) return undefined
+  const fmt = (iso: string) => new Intl.DateTimeFormat('pt-BR').format(new Date(iso))
+  return dates.length === 1 ? fmt(dates[0]) : `${fmt(dates[0])} — ${fmt(dates[dates.length - 1])}`
+}
+
 export function hasActiveFilters(filters: ReportFilters) {
   return Boolean(
     filters.formId ||
@@ -206,7 +241,8 @@ export function hasActiveFilters(filters: ReportFilters) {
       filters.search ||
       (filters.scopeType && filters.scopeType !== 'all') ||
       filters.municipio ||
-      filters.school_name,
+      filters.school_name ||
+      filters.turma,
   )
 }
 

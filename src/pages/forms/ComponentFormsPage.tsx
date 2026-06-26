@@ -9,7 +9,7 @@ import {
   EMPTY_COMPONENT_FORMS_FILTERS,
 } from '@/components/forms/ComponentFormsFilters'
 import { FormsListSection } from '@/components/forms/FormsListSection'
-import { applyComponentFormsFilters } from '@/lib/formFilters'
+import { applyComponentFormsFilters, collectComponentFormsOptions } from '@/lib/formFilters'
 import {
   componentToSlug,
   getComponentTheme,
@@ -64,6 +64,11 @@ export function ComponentFormsPage() {
     [componentForms, filters],
   )
 
+  const locationOptions = useMemo(
+    () => collectComponentFormsOptions(componentForms, filters),
+    [componentForms, filters],
+  )
+
   useEffect(() => {
     setPage(1)
   }, [filters])
@@ -89,6 +94,8 @@ export function ComponentFormsPage() {
       municipio: context.municipio,
       school_name: context.schoolName,
       turma: context.turma,
+      available_from: context.availableFrom,
+      available_until: context.availableUntil,
     })
     if (insertError) setError(insertError.message)
     else {
@@ -130,12 +137,21 @@ export function ComponentFormsPage() {
   const handleConfirmDeleteLink = async () => {
     if (!deleteLinkTarget) return
     setDeletingLink(true)
-    const { error: deleteError } = await supabase
+    setError('')
+    const { data, error: deleteError } = await supabase
       .from('form_links')
       .delete()
       .eq('id', deleteLinkTarget.id)
-    if (deleteError) setError(deleteError.message)
-    else {
+      .select('id')
+
+    if (deleteError) {
+      const msg = deleteError.message.toLowerCase().includes('foreign key')
+        ? 'Não foi possível excluir: há respostas vinculadas a este link. Tente novamente após atualizar o sistema.'
+        : deleteError.message
+      setError(msg)
+    } else if (!data?.length) {
+      setError('Não foi possível excluir o link. Verifique se você tem permissão para removê-lo.')
+    } else {
       setDeleteLinkTarget(null)
       reload()
     }
@@ -194,6 +210,7 @@ export function ComponentFormsPage() {
         filters={filters}
         resultCount={filtered.length}
         totalCount={componentForms.length}
+        locationOptions={locationOptions}
         onChange={setFilters}
         onClear={() => setFilters(EMPTY_COMPONENT_FORMS_FILTERS)}
       />

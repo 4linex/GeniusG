@@ -8,6 +8,9 @@ export interface Profile {
   municipio?: string | null
   school_name?: string | null
   school_id?: string | null
+  municipios?: string[] | null
+  school_names?: string[] | null
+  school_ids?: string[] | null
   turmas?: string[] | null
   created_at: string
 }
@@ -146,6 +149,8 @@ export interface FormLink {
   municipio?: string | null
   school_name?: string | null
   turma?: string | null
+  available_from?: string | null
+  available_until?: string | null
   created_at: string
   form?: Form
 }
@@ -218,6 +223,24 @@ export interface RegisterUserPayload {
   municipio?: string
   school_name?: string
   school_id?: string
+  municipios?: string[]
+  school_names?: string[]
+  school_ids?: string[]
+  turmas?: string[]
+}
+
+export interface UpdateUserPayload {
+  user_id: string
+  email?: string
+  password?: string
+  full_name: string
+  role: UserRole
+  municipio?: string
+  school_name?: string
+  school_id?: string
+  municipios?: string[]
+  school_names?: string[]
+  school_ids?: string[]
   turmas?: string[]
 }
 

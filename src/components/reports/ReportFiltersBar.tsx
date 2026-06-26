@@ -1,10 +1,12 @@
 import { FilterX, Search } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
+import { DatePicker } from '@/components/ui/DatePicker'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { ReportScopeFields } from '@/components/reports/ReportScopeFields'
 import type { ReportFilters } from '@/lib/reportAnalytics'
+import type { Profile } from '@/types/database'
 
 interface ReportFiltersBarProps {
   filters: ReportFilters
@@ -16,6 +18,7 @@ interface ReportFiltersBarProps {
   showSearch?: boolean
   showDates?: boolean
   showScope?: boolean
+  scopeProfile?: Pick<Profile, 'role' | 'municipio' | 'school_name' | 'turmas'> | null
   searchPlaceholder?: string
 }
 
@@ -29,9 +32,11 @@ export function ReportFiltersBar({
   showSearch = true,
   showDates = true,
   showScope = false,
+  scopeProfile,
   searchPlaceholder = 'Buscar...',
 }: ReportFiltersBarProps) {
   const patch = (partial: Partial<ReportFilters>) => onChange({ ...filters, ...partial })
+  const effectiveShowDates = showDates && !showScope
 
   const hasFilters = Boolean(
     filters.formId ||
@@ -39,6 +44,7 @@ export function ReportFiltersBar({
       filters.dateFrom ||
       filters.dateTo ||
       filters.search ||
+      filters.turma ||
       (filters.scopeType && filters.scopeType !== 'all') ||
       filters.municipio ||
       filters.school_name,
@@ -48,7 +54,7 @@ export function ReportFiltersBar({
     (showSearch ? 1 : 0) +
     (showForm ? 1 : 0) +
     (showStudent ? 1 : 0) +
-    (showDates ? 2 : 0)
+    (effectiveShowDates ? 2 : 0)
 
   const gridCols =
     fieldCount >= 5
@@ -63,7 +69,9 @@ export function ReportFiltersBar({
 
   return (
     <Card className="p-4 sm:p-5 overflow-visible space-y-4">
-      {showScope && <ReportScopeFields filters={filters} onChange={onChange} />}
+      {showScope && (
+        <ReportScopeFields filters={filters} onChange={onChange} profile={scopeProfile} />
+      )}
 
       <div className={`grid gap-3 grid-cols-1 ${gridCols}`}>
         {showSearch && (
@@ -114,24 +122,22 @@ export function ReportFiltersBar({
           </div>
         )}
 
-        {showDates && (
+        {effectiveShowDates && (
           <>
             <div className="min-w-0">
-              <Input
+              <DatePicker
                 label="Período (de)"
                 size="sm"
-                type="date"
                 value={filters.dateFrom ?? ''}
-                onChange={(e) => patch({ dateFrom: e.target.value || undefined })}
+                onChange={(v) => patch({ dateFrom: v || undefined })}
               />
             </div>
             <div className="min-w-0">
-              <Input
+              <DatePicker
                 label="Período (até)"
                 size="sm"
-                type="date"
                 value={filters.dateTo ?? ''}
-                onChange={(e) => patch({ dateTo: e.target.value || undefined })}
+                onChange={(v) => patch({ dateTo: v || undefined })}
               />
             </div>
           </>
