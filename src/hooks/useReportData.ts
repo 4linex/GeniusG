@@ -12,7 +12,7 @@ import type { RawAnswerRow, ResponseWithForm } from '@/lib/reportAnalytics'
 export function useReportData() {
   const { user, profile } = useAuth()
   const cached =
-    user && profile ? getReportDataCache(user.id, profile.role) : null
+    user && profile ? getReportDataCache(user.id, profile.role, profile) : null
 
   const [responses, setResponses] = useState<ResponseWithForm[]>(cached?.responses ?? [])
   const [answers, setAnswers] = useState<RawAnswerRow[]>(cached?.answers ?? [])
@@ -22,13 +22,13 @@ export function useReportData() {
   const refetch = useCallback(async () => {
     if (!user || !profile) return
 
-    const hadData = Boolean(getReportDataCache(user.id, profile.role))
+    const hadData = Boolean(getReportDataCache(user.id, profile.role, profile))
     if (!hadData) setLoading(true)
     setError(null)
 
     try {
-      const snapshot = await loadReportData(user.id, profile.role)
-      setReportDataCache(user.id, profile.role, snapshot)
+      const snapshot = await loadReportData(user.id, profile.role, profile)
+      setReportDataCache(user.id, profile.role, snapshot, profile)
       setResponses(snapshot.responses)
       setAnswers(snapshot.answers)
     } catch (err) {
@@ -48,7 +48,7 @@ export function useReportData() {
       return
     }
 
-    const snapshot = getReportDataCache(user.id, profile.role)
+    const snapshot = getReportDataCache(user.id, profile.role, profile)
     if (snapshot) {
       setResponses(snapshot.responses)
       setAnswers(snapshot.answers)

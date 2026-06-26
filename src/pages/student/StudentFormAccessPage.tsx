@@ -8,6 +8,7 @@ import { APP_BADGE } from '@/lib/branding'
 import { GamifiedEmojiBackground } from '@/components/student/GamifiedEmojiBackground'
 import type { FormMode } from '@/types/database'
 import { cn } from '@/lib/utils'
+import { requestExamFullscreen } from '@/hooks/useExamLockdown'
 
 export function StudentFormAccessPage() {
   const { slug } = useParams()
@@ -92,6 +93,7 @@ export function StudentFormAccessPage() {
       JSON.stringify({ name: name.trim(), email: email.toLowerCase().trim() }),
     )
 
+    await requestExamFullscreen()
     navigate(`/f/${slug}/responder`)
     setChecking(false)
   }

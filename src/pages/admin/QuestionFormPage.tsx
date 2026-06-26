@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/Button'
@@ -12,11 +12,12 @@ import { Card, CardHeader } from '@/components/ui/Card'
 import {
   ANO_SERIE_MVP,
   ANO_SERIE_OPTIONS,
-  BLOOM_LEVELS,
   COMPONENTE_MVP,
   COMPONENTE_OPTIONS,
   type QuestionAlternative,
 } from '@/types/database'
+import { ensureSkillBankFromQuestionFields } from '@/lib/skillBank'
+import { PedagogicalSkillFields } from '@/components/forms/PedagogicalSkillFields'
 import { stripHtml } from '@/lib/richText'
 import { needsAlternatives, type QuestionType } from '@/types/questionTypes'
 import { QuestionTypePicker } from '@/components/forms/QuestionTypePicker'
@@ -37,11 +38,32 @@ const DEFAULT_ALTERNATIVES: QuestionAlternative[] = [
   { letter: 'D', text: '', is_correct: false, order_index: 3 },
 ]
 
-export function QuestionFormPage() {
+export interface QuestionFormPageProps {
+  embedded?: boolean
+  fixedComponente?: string
+  returnPath?: string
+  onSaved?: () => void
+  onCancel?: () => void
+}
+
+export function QuestionFormPage({
+  embedded = false,
+  fixedComponente,
+  returnPath,
+  onSaved,
+  onCancel,
+}: QuestionFormPageProps = {}) {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { user, profile } = useAuth()
+  const location = useLocation()
   const isEditing = Boolean(id)
+  const resolvedReturnPath =
+    returnPath ||
+    (location.state as { returnPath?: string } | null)?.returnPath
+  const presetComponente =
+    fixedComponente ||
+    (location.state as { fixedComponente?: string } | null)?.fixedComponente
+  const { user, profile } = useAuth()
 
   const [questionType, setQuestionType] = useState<QuestionType>('multipla_escolha')
   const [title, setTitle] = useState('')
@@ -79,10 +101,15 @@ export function QuestionFormPage() {
     profile?.role === 'root'
 
   const { levels: difficultyLevels } = useDifficultyLevels()
-
   const handleNivelDificuldadeChange = (value: string) => {
     setNivelDificuldade(value)
   }
+
+  useEffect(() => {
+    if (presetComponente) {
+      setComponenteCurricular(presetComponente)
+    }
+  }, [presetComponente])
 
   useEffect(() => {
     if (!id) return
@@ -225,6 +252,18 @@ export function QuestionFormPage() {
 
     setLoading(true)
 
+    try {
+      await ensureSkillBankFromQuestionFields({
+        descritor_saeb: descritorSaeb,
+        habilidade_bncc: habilidadeBncc,
+        nivel_bloom: nivelBloom,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar banco de habilidades')
+      setLoading(false)
+      return
+    }
+
     const questionData: Record<string, unknown> = {
       title,
       enunciado,
@@ -275,7 +314,13 @@ export function QuestionFormPage() {
         await syncQuestionAlternatives(questionId!, alternatives)
       }
 
-      navigate('/admin/questoes')
+      if (embedded && onSaved) {
+        onSaved()
+      } else if (resolvedReturnPath) {
+        navigate(resolvedReturnPath)
+      } else {
+        navigate('/admin/questoes')
+      }
     } catch (err) {
       setError(getErrorMessage(err, 'Erro ao salvar questão'))
     } finally {
@@ -285,16 +330,33 @@ export function QuestionFormPage() {
 
   return (
     <div>
-      <CardHeader
-        title={isEditing ? 'Editar Questão' : 'Nova Questão'}
-        description="Cadastro modular — metadados completos para administração"
-        action={
+      {!embedded && (
+        <CardHeader
+          title={isEditing ? 'Editar Questão' : 'Nova Questão'}
+          description="Cadastro modular — metadados completos para administração"
+          action={
+            <Button type="button" variant="secondary" size="sm" onClick={() => setPreviewOpen(true)}>
+              <Eye size={16} />
+              Visualizar
+            </Button>
+          }
+        />
+      )}
+
+      {embedded && (
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Escrever nova questão</h2>
+            <p className="text-sm text-slate-400 mt-0.5">
+              Componente: <span className="text-slate-300">{presetComponente}</span>
+            </p>
+          </div>
           <Button type="button" variant="secondary" size="sm" onClick={() => setPreviewOpen(true)}>
             <Eye size={16} />
             Visualizar
           </Button>
-        }
-      />
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr] gap-6 items-start">
@@ -377,6 +439,7 @@ export function QuestionFormPage() {
                   value={componenteCurricular}
                   onChange={(e) => setComponenteCurricular(e.target.value)}
                   options={COMPONENTE_OPTIONS}
+                  disabled={Boolean(presetComponente)}
                 />
                 <Textarea
                   label="Conteúdo programático"
@@ -391,19 +454,15 @@ export function QuestionFormPage() {
                   onChange={(e) => setAnoSerie(e.target.value)}
                   options={ANO_SERIE_OPTIONS}
                 />
-                <Input label="Descritor Saeb" value={descritorSaeb} onChange={(e) => setDescritorSaeb(e.target.value)} />
-                <Input
-                  label="Habilidade BNCC relacionada"
-                  value={habilidadeBncc}
-                  onChange={(e) => setHabilidadeBncc(e.target.value)}
-                  required
-                />
-                <Select
-                  label="Nível de Bloom"
-                  value={nivelBloom}
-                  onChange={(e) => setNivelBloom(e.target.value)}
-                  required
-                  options={[{ value: '', label: 'Selecione...' }, ...BLOOM_LEVELS.map((l) => ({ value: l, label: l }))]}
+                <PedagogicalSkillFields
+                  descritorSaeb={descritorSaeb}
+                  habilidadeBncc={habilidadeBncc}
+                  nivelBloom={nivelBloom}
+                  onDescritorSaebChange={setDescritorSaeb}
+                  onHabilidadeBnccChange={setHabilidadeBncc}
+                  onNivelBloomChange={setNivelBloom}
+                  bnccRequired
+                  bloomRequired
                 />
                 <Select
                   label="Nível de dificuldade"
@@ -473,7 +532,15 @@ export function QuestionFormPage() {
                 <Eye size={16} />
                 Visualizar
               </Button>
-              <Button type="button" variant="secondary" onClick={() => navigate('/admin/questoes')}>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  if (embedded && onCancel) onCancel()
+                  else if (resolvedReturnPath) navigate(resolvedReturnPath)
+                  else navigate('/admin/questoes')
+                }}
+              >
                 Cancelar
               </Button>
             </div>

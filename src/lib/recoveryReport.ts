@@ -1,8 +1,11 @@
 import { loadFormAssessmentDetail, loadTriByFormChart, type SkillBreakdownRow } from '@/lib/formAssessmentReport'
 import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
+import { EMPTY_SKILL_LABELS } from '@/lib/reportAnalytics'
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
 import { formatPercentRange } from '@/lib/formTrails'
 import { resolveScopedFormIds } from '@/lib/scopedForms'
+import { reportScopeLabel, type ReportFilters } from '@/lib/reportAnalytics'
+import { applyDashboardContextFilters, applyProfileLocationScope, isScopedAdminRole } from '@/lib/dashboardScope'
 import { stripHtml } from '@/lib/richText'
 import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
 import { NIVEL_PROFICIENCIA_LABELS } from '@/lib/scoring'
@@ -64,6 +67,7 @@ export interface RecoveryReportData {
   highlights: string[]
   performanceBreakdown: PerformanceBreakdownItem[]
   areaRows: AreaPerformanceRow[]
+  saebRows?: AreaPerformanceRow[]
   weakSkills: string[]
   recommendations: string[]
   triSummary?: TriSummaryRow[]
@@ -174,20 +178,33 @@ function buildRecommendations(weakSkills: string[], kind: RecoveryReportKind): s
 
 async function aggregateSkillsFromResponseIds(responseIds: string[]) {
   if (responseIds.length === 0) {
-    return { bncc: [] as SkillBreakdownRow[], bloom: [] as SkillBreakdownRow[] }
+    return {
+      bncc: [] as SkillBreakdownRow[],
+      saeb: [] as SkillBreakdownRow[],
+      bloom: [] as SkillBreakdownRow[],
+    }
   }
 
   const answers = await fetchAnswersByResponseIds(responseIds)
 
-  const byHabilidade = new Map<string, { total: number; correct: number }>()
+  const byBncc = new Map<string, { total: number; correct: number }>()
+  const bySaeb = new Map<string, { total: number; correct: number }>()
   const byBloom = new Map<string, { total: number; correct: number }>()
 
   for (const a of answers) {
-    const habKey = a.habilidade
-    const hab = byHabilidade.get(habKey) || { total: 0, correct: 0 }
-    hab.total++
-    if (a.is_correct) hab.correct++
-    byHabilidade.set(habKey, hab)
+    if (a.habilidade_bncc !== EMPTY_SKILL_LABELS.bncc) {
+      const hab = byBncc.get(a.habilidade_bncc) || { total: 0, correct: 0 }
+      hab.total++
+      if (a.is_correct) hab.correct++
+      byBncc.set(a.habilidade_bncc, hab)
+    }
+
+    if (a.descritor_saeb !== EMPTY_SKILL_LABELS.saeb) {
+      const saeb = bySaeb.get(a.descritor_saeb) || { total: 0, correct: 0 }
+      saeb.total++
+      if (a.is_correct) saeb.correct++
+      bySaeb.set(a.descritor_saeb, saeb)
+    }
 
     const bloomKey = a.bloom
     const bloom = byBloom.get(bloomKey) || { total: 0, correct: 0 }
@@ -207,7 +224,7 @@ async function aggregateSkillsFromResponseIds(responseIds: string[]) {
       }))
       .sort((a, b) => a.percentage - b.percentage)
 
-  return { bncc: toRows(byHabilidade), bloom: toRows(byBloom) }
+  return { bncc: toRows(byBncc), saeb: toRows(bySaeb), bloom: toRows(byBloom) }
 }
 
 async function fetchRecommendedTrailsByResponseIds(
@@ -301,7 +318,7 @@ export async function buildStudentRecoveryReport(
   const averageTheta = avgTheta(studentResponses.map((r) => r.theta ?? null))
 
   const responseIds = studentResponses.map((r) => r.id)
-  const [{ bncc, bloom }, recommendedTrails] = await Promise.all([
+  const [{ bncc, saeb, bloom }, recommendedTrails] = await Promise.all([
     aggregateSkillsFromResponseIds(responseIds),
     fetchRecommendedTrailsByResponseIds(responseIds),
   ])
@@ -317,8 +334,14 @@ export async function buildStudentRecoveryReport(
         : undefined,
   }))
 
-  const weakSkills = bncc.filter((s) => s.percentage < 60).map((s) => s.label)
-  const strongSkills = bncc.filter((s) => s.percentage >= 70).map((s) => s.label)
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
+  const strongSkills = [
+    ...bncc.filter((s) => s.percentage >= 70).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage >= 70).map((s) => s.label),
+  ]
 
   const highlights: string[] = [
     `${studentResponses.length} formulário(s) analisado(s) no período.`,
@@ -425,23 +448,28 @@ export async function buildFormRecoveryReport(formId: string): Promise<RecoveryR
 export async function buildSkillsRecoveryReport(
   responseIds: string[],
   scopedFormIds: string[] | null,
+  scope?: Pick<ReportFilters, 'scopeType' | 'municipio' | 'school_name'>,
 ): Promise<RecoveryReportData | null> {
   if (responseIds.length === 0) return null
 
-  const { bncc, bloom } = await aggregateSkillsFromResponseIds(responseIds)
+  const { bncc, saeb, bloom } = await aggregateSkillsFromResponseIds(responseIds)
   const triSummary = await loadTriByFormChart(scopedFormIds)
 
-  const allSkillPcts = [...bncc, ...bloom].map((s) => s.percentage)
+  const allSkillPcts = [...bncc, ...saeb, ...bloom].map((s) => s.percentage)
   const overallPercentage = allSkillPcts.length > 0 ? avg(allSkillPcts) : 0
-  const weakSkills = bncc.filter((s) => s.percentage < 60).map((s) => s.label)
-  const criticalCount = bncc.filter((s) => s.percentage < 60).length
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
+  const criticalCount =
+    bncc.filter((s) => s.percentage < 60).length + saeb.filter((s) => s.percentage < 60).length
 
   const highlights: string[] = [
     `${responseIds.length} resposta(s) analisadas.`,
-    `${bncc.length} habilidade(s) BNCC/SAEB mapeadas.`,
+    `${bncc.length} habilidade(s) BNCC e ${saeb.length} descritor(es) SAEB mapeados.`,
     criticalCount > 0
-      ? `${criticalCount} habilidade(s) críticas (abaixo de 60%).`
-      : 'Nenhuma habilidade crítica identificada no conjunto analisado.',
+      ? `${criticalCount} competência(s) críticas (abaixo de 60%).`
+      : 'Nenhuma competência crítica identificada no conjunto analisado.',
   ]
 
   if (triSummary.length > 0) {
@@ -456,13 +484,14 @@ export async function buildSkillsRecoveryReport(
     reportTitle: `${APP_NAME} — Relatório de Habilidades`,
     reportDate: formatReportDate(),
     turma: 'Todas as turmas',
-    escola: '—',
+    escola: reportScopeLabel(scope ?? { scopeType: 'all' }),
     periodo: formatReportDate(),
     overallPercentage,
-    totalItems: bncc.length + bloom.length,
+    totalItems: bncc.length + saeb.length + bloom.length,
     highlights,
     performanceBreakdown: buildBreakdownFromPercentages(bncc.map((s) => ({ pct: s.percentage }))),
     areaRows: skillsToAreaRows(bncc.slice(0, 12), 'BNCC'),
+    saebRows: skillsToAreaRows(saeb.slice(0, 12), 'SAEB'),
     bloomRows: skillsToAreaRows(bloom.slice(0, 8), 'Bloom'),
     weakSkills: weakSkills.slice(0, 8),
     recommendations: buildRecommendations(weakSkills, 'skills'),
@@ -478,6 +507,8 @@ export async function buildSkillsRecoveryReport(
 export async function buildDashboardRecoveryReport(
   userId: string,
   role: Profile['role'],
+  scope?: Pick<ReportFilters, 'scopeType' | 'municipio' | 'school_name'>,
+  profile?: Pick<Profile, 'municipio' | 'school_name'> | null,
 ): Promise<RecoveryReportData | null> {
   const scopedFormIds = await resolveScopedFormIds(userId, role)
 
@@ -497,7 +528,7 @@ export async function buildDashboardRecoveryReport(
   let responsesQuery = supabase
     .from('form_responses')
     .select(
-      'id, form_id, student_email, percentual_acerto, theta, nivel_proficiencia, completed_at',
+      'id, form_id, student_email, percentual_acerto, theta, nivel_proficiencia, completed_at, municipio, school_name, turma',
     )
 
   const [{ data: forms }, { data: links }] = await Promise.all([formsQuery, linksQuery])
@@ -509,13 +540,35 @@ export async function buildDashboardRecoveryReport(
     responsesQuery = responsesQuery.in('form_id', ['00000000-0000-0000-0000-000000000000'])
   }
 
+  let effectiveScope = scope
+  if (isScopedAdminRole(role) && profile) {
+    effectiveScope = {
+      scopeType: profile.school_name ? 'escola' : 'municipio',
+      municipio: profile.municipio ?? undefined,
+      school_name: profile.school_name ?? undefined,
+    }
+  }
+
   const { data: responses } = await responsesQuery
-  const responseList = responses || []
+  let responseList = responses || []
+
+  if (effectiveScope?.scopeType === 'municipio' && effectiveScope.municipio) {
+    responseList = applyDashboardContextFilters(responseList, {
+      municipio: effectiveScope.municipio,
+    })
+  } else if (effectiveScope?.scopeType === 'escola') {
+    responseList = applyDashboardContextFilters(responseList, {
+      municipio: effectiveScope.municipio,
+      school_name: effectiveScope.school_name,
+    })
+  } else if (isScopedAdminRole(role) && profile) {
+    responseList = applyProfileLocationScope(responseList, profile)
+  }
 
   if (responseList.length === 0) return null
 
   const responseIds = responseList.map((r) => r.id)
-  const { bncc, bloom } = await aggregateSkillsFromResponseIds(responseIds)
+  const { bncc, saeb, bloom } = await aggregateSkillsFromResponseIds(responseIds)
   const triSummary = await loadTriByFormChart(scopedFormIds)
 
   const tctScores = responseList
@@ -525,7 +578,10 @@ export async function buildDashboardRecoveryReport(
   const averageTheta = avgTheta(responseList.map((r) => r.theta ?? null))
 
   const uniqueStudents = new Set(responseList.map((r) => r.student_email)).size
-  const weakSkills = bncc.filter((s) => s.percentage < 60).map((s) => s.label)
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
   const criticalCount = weakSkills.length
 
   const byNivel: Record<NivelProficiencia, number> = {
@@ -590,7 +646,7 @@ export async function buildDashboardRecoveryReport(
     reportTitle: `${APP_NAME} — Relatório Geral`,
     reportDate: formatReportDate(),
     turma: 'Visão consolidada',
-    escola: 'Todas as escolas',
+    escola: reportScopeLabel(effectiveScope ?? scope ?? { scopeType: 'all' }),
     periodo: formatReportDate(),
     overallPercentage,
     averageTheta,
@@ -609,9 +665,13 @@ export async function buildDashboardRecoveryReport(
     ),
     areaRows: formAreaRows.slice(0, 12),
     criticalSkillRows: skillsToAreaRows(
-      bncc.filter((s) => s.percentage < 60).slice(0, 8),
-      'BNCC',
+      [
+        ...bncc.filter((s) => s.percentage < 60),
+        ...saeb.filter((s) => s.percentage < 60),
+      ].slice(0, 8),
+      'BNCC/SAEB',
     ),
+    saebRows: skillsToAreaRows(saeb.filter((s) => s.percentage < 60).slice(0, 8), 'SAEB'),
     bloomRows: skillsToAreaRows(bloom.slice(0, 8), 'Bloom'),
     weakSkills: weakSkills.slice(0, 8),
     recommendations: buildRecommendations(weakSkills, 'dashboard'),

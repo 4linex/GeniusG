@@ -15,6 +15,7 @@ import { loadDifficultyLevels, resolveQuestionPointValue } from '@/lib/difficult
 import type { DifficultyLevel } from '@/types/database'
 import type { FormTrailConfig } from '@/types/database'
 import { formTrailRowToConfig } from '@/lib/formTrails'
+import { ensureSkillBankFromQuestionFields } from '@/lib/skillBank'
 
 export { getErrorMessage, syncQuestionAlternatives }
 
@@ -22,6 +23,7 @@ export interface FormSavePayload {
   title: string
   description: string
   schoolName: string
+  componenteCurricular: string
   isActive: boolean
   status: FormStatus
   expectedStudents: string
@@ -61,11 +63,22 @@ function questionPointValue(q: BuilderQuestion, levels: DifficultyLevel[]) {
   return resolveQuestionPointValue(q.questionType, q.metadata?.nivel_dificuldade, levels)
 }
 
+async function syncQuestionSkillBank(metadata: BuilderQuestion['metadata']): Promise<void> {
+  if (!metadata) return
+  await ensureSkillBankFromQuestionFields({
+    descritor_saeb: metadata.descritor_saeb,
+    habilidade_bncc: metadata.habilidade_bncc,
+    nivel_bloom: metadata.nivel_bloom,
+  })
+}
+
 async function upsertInlineQuestion(
   q: BuilderQuestion,
   userId: string,
   difficultyLevels: DifficultyLevel[],
 ): Promise<string> {
+  await syncQuestionSkillBank(q.metadata)
+
   const payload = {
     title: q.title,
     enunciado: q.enunciado,
@@ -105,6 +118,8 @@ async function updateBankQuestionInForm(
   difficultyLevels: DifficultyLevel[],
 ): Promise<void> {
   if (!q.questionId) return
+
+  await syncQuestionSkillBank(q.metadata)
 
   const updatePayload: Record<string, unknown> = {
     title: q.title,
@@ -154,6 +169,7 @@ export async function saveForm(
     title: payload.title,
     description: payload.description || null,
     school_name: payload.schoolName.trim() || null,
+    componente_curricular: payload.componenteCurricular,
     is_active: payload.isActive,
     status: payload.status,
     expected_students: payload.expectedStudents ? parseInt(payload.expectedStudents, 10) : null,

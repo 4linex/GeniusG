@@ -28,7 +28,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [sessionReady, setSessionReady] = useState(false)
+  const [profileLoading, setProfileLoading] = useState(false)
+
+  const loading = !sessionReady || profileLoading
 
   const fetchProfile = async (userId: string) => {
     const { data, error } = await supabase
@@ -52,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted) return
       setSession(s)
       setUser(s?.user ?? null)
+      setSessionReady(true)
     })
 
     const {
@@ -73,24 +77,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let mounted = true
     const userId = user?.id
 
+    if (!sessionReady) return
+
     if (!userId) {
       setProfile(null)
-      setLoading(false)
+      setProfileLoading(false)
       return
     }
 
-    setLoading(true)
+    setProfileLoading(true)
     fetchProfile(userId).then((p) => {
       if (mounted) {
         setProfile(p)
-        setLoading(false)
+        setProfileLoading(false)
       }
     })
 
     return () => {
       mounted = false
     }
-  }, [user?.id])
+  }, [user?.id, sessionReady])
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })

@@ -13,6 +13,10 @@ import type { Profile, UserRole } from '@/types/database'
 import { ROLE_LABELS } from '@/types/database'
 import { UserPlus, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { SchoolPicker, type SchoolSelection } from '@/components/schools/SchoolPicker'
+import { SchoolTurmasMultiPicker } from '@/components/schools/SchoolTurmasMultiPicker'
+import { listSchoolClasses } from '@/lib/schoolClasses'
+import { useSchools } from '@/hooks/useSchools'
 
 export function UsersSection() {
   const { user, registerUser, deleteUser, hasRole } = useAuth()
@@ -22,6 +26,10 @@ export function UsersSection() {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const { schools, loading: schoolsLoading } = useSchools()
+  const [schoolSelection, setSchoolSelection] = useState<SchoolSelection | null>(null)
+  const [selectedTurmas, setSelectedTurmas] = useState<string[]>([])
+  const [schoolHasClasses, setSchoolHasClasses] = useState(false)
   const [role, setRole] = useState<UserRole>('professor')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -50,10 +58,40 @@ export function UsersSection() {
 
   useRefreshOnFocus(loadUsers, true)
 
+  useEffect(() => {
+    if (!schoolSelection?.schoolId) {
+      setSelectedTurmas([])
+      setSchoolHasClasses(false)
+      return
+    }
+
+    let cancelled = false
+    listSchoolClasses(schoolSelection.schoolId)
+      .then((rows) => {
+        if (cancelled) return
+        const names = rows.map((row) => row.name)
+        setSchoolHasClasses(names.length > 0)
+        setSelectedTurmas((prev) => prev.filter((name) => names.includes(name)))
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSchoolHasClasses(false)
+          setSelectedTurmas([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [schoolSelection?.schoolId])
+
   const resetForm = () => {
     setFullName('')
     setEmail('')
     setPassword('')
+    setSchoolSelection(null)
+    setSelectedTurmas([])
+    setSchoolHasClasses(false)
     setRole('professor')
     setError('')
   }
@@ -73,9 +111,30 @@ export function UsersSection() {
     e.preventDefault()
     setError('')
     setSuccess('')
+    if ((role === 'professor' || role === 'admin') && !schoolSelection) {
+      setError(
+        role === 'professor'
+          ? 'Selecione a escola do professor'
+          : 'Selecione a escola ou município do administrador',
+      )
+      return
+    }
+    if (role === 'professor' && schoolHasClasses && selectedTurmas.length === 0) {
+      setError('Selecione ao menos uma turma do professor')
+      return
+    }
     setSubmitting(true)
     try {
-      await registerUser({ email, password, full_name: fullName, role })
+      await registerUser({
+        email,
+        password,
+        full_name: fullName,
+        role,
+        municipio: schoolSelection?.municipio,
+        school_name: schoolSelection?.schoolName,
+        school_id: schoolSelection?.schoolId,
+        turmas: role === 'professor' ? selectedTurmas : undefined,
+      })
       setSuccess('Usuário cadastrado com sucesso!')
       closeCreateModal()
       loadUsers()
@@ -162,9 +221,36 @@ export function UsersSection() {
           <Select
             label="Perfil de acesso"
             value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
+            onChange={(e) => {
+              const nextRole = e.target.value as UserRole
+              setRole(nextRole)
+              if (nextRole !== 'professor' && nextRole !== 'admin') {
+                setSchoolSelection(null)
+                setSelectedTurmas([])
+              }
+              if (nextRole !== 'professor') setSelectedTurmas([])
+            }}
             options={roleOptions}
           />
+          {(role === 'professor' || role === 'admin') && (
+            <SchoolPicker
+              schools={schools}
+              loading={schoolsLoading}
+              value={schoolSelection}
+              onChange={setSchoolSelection}
+              required
+              label={role === 'admin' ? 'Área de responsabilidade' : 'Escola'}
+            />
+          )}
+          {role === 'professor' && (
+            <SchoolTurmasMultiPicker
+              schoolId={schoolSelection?.schoolId}
+              value={selectedTurmas}
+              onChange={setSelectedTurmas}
+              required={schoolHasClasses}
+              disabled={submitting}
+            />
+          )}
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex gap-3 justify-end pt-2">
             <Button type="button" variant="secondary" onClick={closeCreateModal}>
@@ -200,6 +286,17 @@ export function UsersSection() {
                     <Badge variant="info">{ROLE_LABELS[profile.role]}</Badge>
                   </div>
                   <p className="text-sm text-slate-400">{profile.email}</p>
+                  {(profile.municipio || profile.school_name || profile.turmas?.length) && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      {[
+                        profile.municipio,
+                        profile.school_name,
+                        profile.turmas?.length ? `Turmas: ${profile.turmas.join(', ')}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <p className="text-xs text-slate-500">{formatDate(profile.created_at)}</p>

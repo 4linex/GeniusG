@@ -34,7 +34,7 @@ function isDarkTextColor(color: string): boolean {
 }
 
 /** Limpa HTML gerado pelo contentEditable para exibição consistente. */
-export function normalizeRichTextHtml(html: string): string {
+export function normalizeRichTextHtml(html: string, options?: { stripAllColors?: boolean }): string {
   if (!html.trim()) return ''
   if (typeof document === 'undefined') return html
 
@@ -69,7 +69,9 @@ export function normalizeRichTextHtml(html: string): string {
     el.style.removeProperty('width')
     el.style.removeProperty('float')
 
-    if (el.style.color && isDarkTextColor(el.style.color)) {
+    if (options?.stripAllColors) {
+      el.style.removeProperty('color')
+    } else if (el.style.color && isDarkTextColor(el.style.color)) {
       el.style.removeProperty('color')
     }
   })

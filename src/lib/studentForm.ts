@@ -177,7 +177,7 @@ async function submitStudentFormFromDb(
 
   const { data: link } = await supabase
     .from('form_links')
-    .select('id, form_id')
+    .select('id, form_id, municipio, school_name, turma')
     .eq('slug', slug)
     .eq('is_active', true)
     .single()
@@ -263,6 +263,9 @@ async function submitStudentFormFromDb(
     .insert({
       form_id: link.form_id,
       form_link_id: link.id,
+      municipio: link.municipio,
+      school_name: link.school_name,
+      turma: link.turma,
       student_name: studentName.trim(),
       student_email: email,
       score: clampScore(assessment.proficienciaEscala),

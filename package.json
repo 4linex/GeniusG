@@ -16,6 +16,8 @@
     "supabase:studio": "supabase studio",
     "supabase:functions": "supabase functions serve",
     "seed:users": "node scripts/seed-users.mjs",
+    "seed:schools": "node scripts/seed-schools.mjs",
+    "db:migrate:school-classes": "node scripts/apply-school-classes-migration.mjs",
     "seed:gadelha-questions": "node scripts/seed-gadelha-questions.mjs",
     "seed:lote2-questions": "node scripts/seed-lote2-questions.mjs",
     "seed:lote3-questions": "node scripts/seed-lote2-questions.mjs",
@@ -23,7 +25,8 @@
     "seed:professor-trails": "node scripts/seed-professor-trails.mjs",
     "seed:form-responses": "node scripts/seed-form-responses.mjs",
     "seed:batch-forms": "node scripts/seed-batch-forms.mjs",
-    "seed:batch-form-responses": "node scripts/seed-batch-form-responses.mjs"
+    "seed:batch-form-responses": "node scripts/seed-batch-form-responses.mjs",
+    "seed:pedagogical-matrix": "npx tsx scripts/seed-pedagogical-matrix.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.0",

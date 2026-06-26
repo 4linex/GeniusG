@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BarChart3, ChevronRight, FileBarChart } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 import { useReportDataContext } from '@/contexts/ReportDataContext'
+import { isRootRole } from '@/lib/dashboardScope'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -25,6 +27,7 @@ import type { NivelProficiencia } from '@/types/database'
 const NIVEL_ORDER: NivelProficiencia[] = ['inicial', 'intermediario', 'avancado']
 
 export function FormReportPage() {
+  const { profile } = useAuth()
   const { responses, loading } = useReportDataContext()
   const [filters, setFilters] = useState<ReportFilters>({})
   const [reportOpen, setReportOpen] = useState(false)
@@ -104,6 +107,7 @@ export function FormReportPage() {
         onChange={setFilters}
         forms={forms}
         students={students}
+        showScope={isRootRole(profile?.role)}
         searchPlaceholder="Buscar formulário ou turma..."
       />
 

@@ -124,6 +124,15 @@
     color: rgb(203 213 225);
   }
 
+  .rich-text-content--light {
+    color: rgb(31 41 55);
+  }
+
+  .rich-text-content--light b,
+  .rich-text-content--light strong {
+    color: rgb(17 24 39);
+  }
+
   .rich-text-content > div,
   .rich-text-content > p {
     margin: 0 0 0.625rem;

@@ -2,9 +2,26 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
 import { loadTriByFormChart, type TriFormChartRow } from '@/lib/formAssessmentReport'
+import { loadTrailDistribution, type TrailDistributionRow } from '@/lib/trailDistribution'
+import {
+  applyDashboardContextFilters,
+  applyProfessorProfileScope,
+  applyProfileTurmaScope,
+  applyProfileLocationScope,
+  dashboardScopeCacheKey,
+  getProfessorLinkIds,
+  hasDashboardContextFilters,
+  isRootRole,
+  isScopedAdminRole,
+  loadDashboardFilterOptions,
+  profileLocationFilters,
+  type DashboardContextFilters,
+  type DashboardFilterOptions,
+  EMPTY_DASHBOARD_CONTEXT_FILTERS,
+} from '@/lib/dashboardScope'
 import { resolveScopedFormIds } from '@/lib/scopedForms'
 import { getPerformanceStatus } from '@/hooks/useScopedResponses'
-import { buildTctBuckets } from '@/lib/reportAnalytics'
+import { buildTctBuckets, EMPTY_SKILL_LABELS } from '@/lib/reportAnalytics'
 import type { FormStatus, NivelProficiencia, Profile } from '@/types/database'
 
 export interface DashboardStats {
@@ -30,7 +47,8 @@ export interface DashboardCharts {
   byNivel: Record<NivelProficiencia, number>
   statusCounts: Record<'excelente' | 'bom' | 'regular' | 'atencao', number>
   tctBuckets: { label: string; count: number }[]
-  criticalSkills: DashboardSkillRow[]
+  criticalBnccSkills: DashboardSkillRow[]
+  criticalSaebSkills: DashboardSkillRow[]
   bloomSkills: DashboardSkillRow[]
   formTctBars: { formId: string; title: string; averageTct: number; totalResponses: number }[]
 }
@@ -63,7 +81,8 @@ const emptyCharts: DashboardCharts = {
   byNivel: { inicial: 0, intermediario: 0, avancado: 0 },
   statusCounts: { excelente: 0, bom: 0, regular: 0, atencao: 0 },
   tctBuckets: [],
-  criticalSkills: [],
+  criticalBnccSkills: [],
+  criticalSaebSkills: [],
   bloomSkills: [],
   formTctBars: [],
 }
@@ -73,6 +92,7 @@ interface DashboardSnapshot {
   charts: DashboardCharts
   evaluations: DashboardEvaluation[]
   triByForm: TriFormChartRow[]
+  trailDistribution: TrailDistributionRow[]
 }
 
 const dashboardCache = new Map<string, DashboardSnapshot>()
@@ -94,14 +114,30 @@ function isInPreviousMonth(iso: string) {
   return d.getMonth() === prev.getMonth() && d.getFullYear() === prev.getFullYear()
 }
 
-export function useDashboardData(userId: string | undefined, role: Profile['role'] | undefined) {
-  const cacheKey = userId && role ? `${userId}:${role}` : null
+export function useDashboardData(
+  userId: string | undefined,
+  role: Profile['role'] | undefined,
+  profile?: Pick<Profile, 'municipio' | 'school_name' | 'turmas'> | null,
+  contextFilters: DashboardContextFilters = EMPTY_DASHBOARD_CONTEXT_FILTERS,
+) {
+  const cacheKey =
+    userId && role ? dashboardScopeCacheKey(userId, role, contextFilters, profile) : null
   const cached = cacheKey ? dashboardCache.get(cacheKey) : undefined
 
   const [stats, setStats] = useState<DashboardStats>(cached?.stats ?? emptyStats)
   const [charts, setCharts] = useState<DashboardCharts>(cached?.charts ?? emptyCharts)
   const [evaluations, setEvaluations] = useState<DashboardEvaluation[]>(cached?.evaluations ?? [])
   const [triByForm, setTriByForm] = useState<TriFormChartRow[]>(cached?.triByForm ?? [])
+  const [trailDistribution, setTrailDistribution] = useState<TrailDistributionRow[]>(
+    cached?.trailDistribution ?? [],
+  )
+  const [filterOptions, setFilterOptions] = useState<DashboardFilterOptions>({
+    municipios: [],
+    escolas: [],
+    turmas: [],
+    schools: [],
+  })
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(false)
   const [loading, setLoading] = useState(!cached)
   const [error, setError] = useState<string | null>(null)
 
@@ -110,17 +146,46 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
     setCharts(snapshot.charts)
     setEvaluations(snapshot.evaluations)
     setTriByForm(snapshot.triByForm)
+    setTrailDistribution(snapshot.trailDistribution)
   }, [])
 
   const fetchData = useCallback(async () => {
     if (!userId || !role) return
 
-    const key = `${userId}:${role}`
+    const key = dashboardScopeCacheKey(userId, role, contextFilters, profile)
     const hadData = dashboardCache.has(key)
     if (!hadData) setLoading(true)
     setError(null)
 
     try {
+      if (isRootRole(role) || isScopedAdminRole(role)) {
+        setFilterOptionsLoading(true)
+        loadDashboardFilterOptions(
+          profile ? { role, municipio: profile.municipio, school_name: profile.school_name } : undefined,
+        )
+          .then(setFilterOptions)
+          .finally(() => setFilterOptionsLoading(false))
+      }
+
+      let professorLinkIds: string[] | null = null
+
+      if (role === 'professor') {
+        professorLinkIds = await getProfessorLinkIds(userId, profile)
+        if (professorLinkIds.length === 0) {
+          const empty: DashboardSnapshot = {
+            stats: emptyStats,
+            charts: emptyCharts,
+            evaluations: [],
+            triByForm: [],
+            trailDistribution: [],
+          }
+          dashboardCache.set(key, empty)
+          applySnapshot(empty)
+          setLoading(false)
+          return
+        }
+      }
+
       const scopedFormIds = await resolveScopedFormIds(userId, role)
 
       if (scopedFormIds !== null && scopedFormIds.length === 0) {
@@ -129,6 +194,7 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
           charts: emptyCharts,
           evaluations: [],
           triByForm: [],
+          trailDistribution: [],
         }
         dashboardCache.set(key, empty)
         applySnapshot(empty)
@@ -143,13 +209,47 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
 
       if (scopedFormIds) formsQuery = formsQuery.in('id', scopedFormIds)
 
-      let linksQuery = supabase.from('form_links').select('id, form_id, created_at')
+      let linksQuery = supabase
+        .from('form_links')
+        .select('id, form_id, created_at, municipio, school_name, turma, professor_id')
+
       if (scopedFormIds) linksQuery = linksQuery.in('form_id', scopedFormIds)
       else if (role === 'professor') linksQuery = linksQuery.eq('professor_id', userId)
 
+      if (professorLinkIds) linksQuery = linksQuery.in('id', professorLinkIds)
+
       let responsesQuery = supabase
         .from('form_responses')
-        .select('id, form_id, student_email, student_name, percentual_acerto, theta, nivel_proficiencia, completed_at')
+        .select(
+          'id, form_id, form_link_id, student_email, student_name, percentual_acerto, theta, nivel_proficiencia, completed_at, municipio, school_name, turma',
+        )
+
+      if (professorLinkIds) {
+        responsesQuery = responsesQuery.in('form_link_id', professorLinkIds)
+      }
+
+      if (isRootRole(role)) {
+        if (contextFilters.municipio) {
+          responsesQuery = responsesQuery.eq('municipio', contextFilters.municipio)
+        }
+        if (contextFilters.school_name) {
+          responsesQuery = responsesQuery.eq('school_name', contextFilters.school_name)
+        }
+        if (contextFilters.turma) {
+          responsesQuery = responsesQuery.eq('turma', contextFilters.turma)
+        }
+      } else if (isScopedAdminRole(role)) {
+        const location = profileLocationFilters(profile)
+        if (location.municipio) {
+          responsesQuery = responsesQuery.eq('municipio', location.municipio)
+        }
+        if (location.school_name) {
+          responsesQuery = responsesQuery.eq('school_name', location.school_name)
+        }
+        if (contextFilters.turma) {
+          responsesQuery = responsesQuery.eq('turma', contextFilters.turma)
+        }
+      }
 
       const [{ data: forms, error: formsError }, { data: links }] = await Promise.all([
         formsQuery,
@@ -159,17 +259,43 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
 
       const formIds = (forms || []).map((f) => f.id)
 
-      if (scopedFormIds && formIds.length > 0) {
+      if (!professorLinkIds) {
+        if (scopedFormIds && formIds.length > 0) {
+          responsesQuery = responsesQuery.in('form_id', formIds)
+        } else if (scopedFormIds) {
+          responsesQuery = responsesQuery.in('form_id', ['00000000-0000-0000-0000-000000000000'])
+        }
+      } else if (formIds.length > 0) {
         responsesQuery = responsesQuery.in('form_id', formIds)
-      } else if (scopedFormIds) {
-        responsesQuery = responsesQuery.in('form_id', ['00000000-0000-0000-0000-000000000000'])
       }
 
       const { data: responses, error: responsesError } = await responsesQuery
       if (responsesError) throw responsesError
 
-      const responseList = responses || []
-      const linkList = links || []
+      let responseList = responses || []
+      let linkList = links || []
+
+      if (role === 'professor') {
+        responseList = applyProfessorProfileScope(responseList, profile)
+        linkList = applyProfessorProfileScope(linkList, profile)
+        responseList = applyProfileTurmaScope(responseList, profile?.turmas)
+        linkList = applyProfileTurmaScope(linkList, profile?.turmas)
+      } else if (isScopedAdminRole(role)) {
+        responseList = applyProfileLocationScope(responseList, profile)
+        linkList = applyProfileLocationScope(linkList, profile)
+        if (contextFilters.turma) {
+          responseList = applyDashboardContextFilters(responseList, {
+            turma: contextFilters.turma,
+          })
+          linkList = applyDashboardContextFilters(linkList, { turma: contextFilters.turma })
+        }
+      } else if (isRootRole(role)) {
+        linkList = applyDashboardContextFilters(linkList, contextFilters)
+        responseList = applyDashboardContextFilters(responseList, contextFilters)
+      }
+
+      const scopedFormIdSet = new Set(responseList.map((r) => r.form_id))
+      const visibleForms = (forms || []).filter((f) => scopedFormIdSet.has(f.id))
 
       const avaliacoesAplicadas = linkList.length
       const avaliacoesMesAtual = linkList.filter((l) => isInCurrentMonth(l.created_at)).length
@@ -198,7 +324,8 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
           : 0
 
       let habilidadesCriticas = 0
-      const bySkill = new Map<string, { total: number; correct: number }>()
+      const byBncc = new Map<string, { total: number; correct: number }>()
+      const bySaeb = new Map<string, { total: number; correct: number }>()
       const byBloom = new Map<string, { total: number; correct: number }>()
       const responseIds = responseList.map((r) => r.id)
 
@@ -206,11 +333,19 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
         const answerRows = await fetchAnswersByResponseIds(responseIds)
 
         for (const a of answerRows) {
-          const habKey = a.habilidade
-          const hab = bySkill.get(habKey) || { total: 0, correct: 0 }
-          hab.total++
-          if (a.is_correct) hab.correct++
-          bySkill.set(habKey, hab)
+          if (a.habilidade_bncc !== EMPTY_SKILL_LABELS.bncc) {
+            const hab = byBncc.get(a.habilidade_bncc) || { total: 0, correct: 0 }
+            hab.total++
+            if (a.is_correct) hab.correct++
+            byBncc.set(a.habilidade_bncc, hab)
+          }
+
+          if (a.descritor_saeb !== EMPTY_SKILL_LABELS.saeb) {
+            const saeb = bySaeb.get(a.descritor_saeb) || { total: 0, correct: 0 }
+            saeb.total++
+            if (a.is_correct) saeb.correct++
+            bySaeb.set(a.descritor_saeb, saeb)
+          }
 
           const bloomKey = a.bloom
           const bloom = byBloom.get(bloomKey) || { total: 0, correct: 0 }
@@ -219,9 +354,13 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
           byBloom.set(bloomKey, bloom)
         }
 
-        habilidadesCriticas = [...bySkill.values()].filter(
+        const criticalBncc = [...byBncc.values()].filter(
           (s) => s.total > 0 && (s.correct / s.total) * 100 < 60,
         ).length
+        const criticalSaeb = [...bySaeb.values()].filter(
+          (s) => s.total > 0 && (s.correct / s.total) * 100 < 60,
+        ).length
+        habilidadesCriticas = criticalBncc + criticalSaeb
       }
 
       const toSkillRows = (map: Map<string, { total: number; correct: number }>) =>
@@ -234,7 +373,12 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
           }))
           .sort((a, b) => a.percentage - b.percentage)
 
-      const criticalSkills = toSkillRows(bySkill).filter((s) => s.percentage < 60).slice(0, 8)
+      const criticalBnccSkills = toSkillRows(byBncc)
+        .filter((s) => s.percentage < 60)
+        .slice(0, 6)
+      const criticalSaebSkills = toSkillRows(bySaeb)
+        .filter((s) => s.percentage < 60)
+        .slice(0, 6)
       const bloomSkills = toSkillRows(byBloom).slice(0, 6)
 
       const byNivel: Record<NivelProficiencia, number> = {
@@ -281,7 +425,7 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
         return Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100
       }
 
-      const evalRows: DashboardEvaluation[] = (forms || []).map((f) => {
+      const evalRows: DashboardEvaluation[] = visibleForms.map((f) => {
         const s = formStats.get(f.id)
         return {
           id: f.id,
@@ -315,7 +459,19 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
         .sort((a, b) => b.averageTct - a.averageTct)
         .slice(0, 8)
 
-      const chartData = await loadTriByFormChart(scopedFormIds)
+      const filteredFormIds = [...scopedFormIdSet]
+      const [chartData, trailRows] = await Promise.all([
+        loadTriByFormChart(
+          isRootRole(role) && !hasDashboardContextFilters(contextFilters)
+            ? null
+            : filteredFormIds.length > 0
+              ? filteredFormIds
+              : ['00000000-0000-0000-0000-000000000000'],
+        ),
+        loadTrailDistribution(
+          responseList.map((r) => ({ id: r.id, student_email: r.student_email })),
+        ),
+      ])
 
       const snapshot: DashboardSnapshot = {
         stats: {
@@ -333,12 +489,14 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
           byNivel,
           statusCounts,
           tctBuckets,
-          criticalSkills,
+          criticalBnccSkills,
+          criticalSaebSkills,
           bloomSkills,
           formTctBars,
         },
         evaluations: latestEvaluations.slice(0, 10),
         triByForm: chartData,
+        trailDistribution: trailRows,
       }
       dashboardCache.set(key, snapshot)
       applySnapshot(snapshot)
@@ -347,7 +505,7 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
     } finally {
       setLoading(false)
     }
-  }, [userId, role, applySnapshot])
+  }, [userId, role, profile, contextFilters, applySnapshot])
 
   useEffect(() => {
     if (!userId || !role) {
@@ -355,7 +513,8 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
       return
     }
 
-    const hit = dashboardCache.get(`${userId}:${role}`)
+    const key = dashboardScopeCacheKey(userId, role, contextFilters, profile)
+    const hit = dashboardCache.get(key)
     if (hit) {
       applySnapshot(hit)
       setLoading(false)
@@ -363,7 +522,7 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
     }
 
     fetchData()
-  }, [userId, role, fetchData, applySnapshot])
+  }, [userId, role, profile, contextFilters, fetchData, applySnapshot])
 
   const updateFormStatus = useCallback(
     async (formId: string, status: FormStatus) => {
@@ -381,5 +540,17 @@ export function useDashboardData(userId: string | undefined, role: Profile['role
     [],
   )
 
-  return { stats, charts, evaluations, triByForm, loading, error, refetch: fetchData, updateFormStatus }
+  return {
+    stats,
+    charts,
+    evaluations,
+    triByForm,
+    trailDistribution,
+    filterOptions,
+    filterOptionsLoading,
+    loading,
+    error,
+    refetch: fetchData,
+    updateFormStatus,
+  }
 }

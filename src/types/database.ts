@@ -5,7 +5,28 @@ export interface Profile {
   email: string
   full_name: string
   role: UserRole
+  municipio?: string | null
+  school_name?: string | null
+  school_id?: string | null
+  turmas?: string[] | null
   created_at: string
+}
+
+export interface School {
+  id: string
+  name: string
+  municipio: string
+  state_uf: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SchoolClass {
+  id: string
+  school_id: string
+  name: string
+  created_at: string
+  updated_at: string
 }
 
 export interface QuestionAlternative {
@@ -101,6 +122,7 @@ export interface Form {
   title: string
   description?: string | null
   school_name?: string | null
+  componente_curricular?: string
   created_by?: string | null
   is_active: boolean
   status: FormStatus
@@ -121,6 +143,9 @@ export interface FormLink {
   slug: string
   professor_id: string
   is_active: boolean
+  municipio?: string | null
+  school_name?: string | null
+  turma?: string | null
   created_at: string
   form?: Form
 }
@@ -131,6 +156,9 @@ export interface FormResponse {
   id: string
   form_id: string
   form_link_id?: string | null
+  municipio?: string | null
+  school_name?: string | null
+  turma?: string | null
   student_name: string
   student_email: string
   score?: number | null
@@ -187,6 +215,42 @@ export interface RegisterUserPayload {
   password: string
   full_name: string
   role: UserRole
+  municipio?: string
+  school_name?: string
+  school_id?: string
+  turmas?: string[]
+}
+
+export type SkillBankType = 'bncc' | 'bloom' | 'saeb'
+
+export interface SkillBankItem {
+  id: string
+  type: SkillBankType
+  code: string | null
+  label: string
+  description: string | null
+  topic?: string | null
+  bloom_hint?: string | null
+  ano_serie?: string | null
+  order_index: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SkillBankRelation {
+  id: string
+  saeb_item_id: string
+  bncc_item_id: string
+  is_essential: boolean
+  created_at: string
+  saeb?: SkillBankItem
+  bncc?: SkillBankItem
+}
+
+export const SKILL_BANK_TYPE_LABELS: Record<SkillBankType, string> = {
+  saeb: 'Descritores SAEB',
+  bncc: 'Habilidades BNCC',
+  bloom: 'Níveis de Bloom',
 }
 
 export const ANO_SERIE_MVP = '5º Ano'
@@ -245,12 +309,20 @@ export const TURMA_OPTIONS = [
 
 export const ANO_SERIE_OPTIONS = TURMA_OPTIONS
 
+/** Séries usadas na matriz SAEB de Língua Portuguesa. */
+export const SAEB_SERIE_OPTIONS = [
+  { value: '5º Ano', label: '5º Ano — Ensino Fundamental' },
+  { value: '9º Ano', label: '9º Ano — Ensino Fundamental' },
+  { value: '3ª série EM', label: '3ª série — Ensino Médio' },
+] as const
+
 export const AREA_OPTIONS = [
   { value: 'Língua Portuguesa', label: 'Língua Portuguesa' },
   { value: 'Matemática', label: 'Matemática' },
   { value: 'Ciências', label: 'Ciências' },
   { value: 'História', label: 'História' },
   { value: 'Geografia', label: 'Geografia' },
+  { value: 'Arte', label: 'Arte' },
 ]
 
 export const COMPONENTE_OPTIONS = AREA_OPTIONS

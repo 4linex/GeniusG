@@ -24,8 +24,9 @@ export function FormAssessmentDetailPage() {
   const [summary, setSummary] = useState<FormAssessmentSummary | null>(null)
   const [students, setStudents] = useState<FormStudentRow[]>([])
   const [bnccSkills, setBnccSkills] = useState<SkillBreakdownRow[]>([])
+  const [saebSkills, setSaebSkills] = useState<SkillBreakdownRow[]>([])
   const [bloomSkills, setBloomSkills] = useState<SkillBreakdownRow[]>([])
-  const [skillsView, setSkillsView] = useState<'habilidade' | 'bloom'>('habilidade')
+  const [skillsView, setSkillsView] = useState<'bncc' | 'saeb' | 'bloom'>('bncc')
   const [denied, setDenied] = useState(false)
 
   useEffect(() => {
@@ -51,6 +52,7 @@ export function FormAssessmentDetailPage() {
         setSummary(data.summary)
         setStudents(data.students)
         setBnccSkills(data.bnccSkills)
+        setSaebSkills(data.saebSkills)
         setBloomSkills(data.bloomSkills)
       } catch (err) {
         console.error(err)
@@ -89,7 +91,8 @@ export function FormAssessmentDetailPage() {
     )
   }
 
-  const skills = skillsView === 'habilidade' ? bnccSkills : bloomSkills
+  const skills =
+    skillsView === 'bncc' ? bnccSkills : skillsView === 'saeb' ? saebSkills : bloomSkills
 
   return (
     <div>
@@ -197,7 +200,7 @@ export function FormAssessmentDetailPage() {
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <h2 className="text-lg font-semibold text-white">Desempenho por competência</h2>
           <div className="flex gap-2">
-            {(['habilidade', 'bloom'] as const).map((v) => (
+            {(['bncc', 'saeb', 'bloom'] as const).map((v) => (
               <button
                 key={v}
                 type="button"
@@ -208,7 +211,7 @@ export function FormAssessmentDetailPage() {
                     : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
               >
-                {v === 'habilidade' ? 'Habilidade BNCC' : 'Nível Bloom'}
+                {v === 'bncc' ? 'Habilidade BNCC' : v === 'saeb' ? 'Descritor SAEB' : 'Nível Bloom'}
               </button>
             ))}
           </div>

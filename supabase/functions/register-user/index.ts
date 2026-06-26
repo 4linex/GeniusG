@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { email, password, full_name, role } = await req.json()
+    const { email, password, full_name, role, municipio, school_name, school_id, turmas } = await req.json()
 
     if (!email || !password || !full_name || !role) {
       return new Response(
@@ -90,9 +90,43 @@ serve(async (req) => {
       )
     }
 
+    let resolvedMunicipio = municipio?.trim() || null
+    let resolvedSchoolName = school_name?.trim() || null
+    let resolvedSchoolId = school_id || null
+
+    if (school_id) {
+      const { data: school, error: schoolError } = await supabaseAdmin
+        .from('schools')
+        .select('id, name, municipio, state_uf')
+        .eq('id', school_id)
+        .single()
+
+      if (schoolError || !school) {
+        return new Response(
+          JSON.stringify({ error: 'Escola não encontrada' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
+      resolvedMunicipio = `${school.municipio} - ${school.state_uf}`
+      resolvedSchoolName = school.name
+      resolvedSchoolId = school.id
+    }
+
+    const resolvedTurmas = Array.isArray(turmas)
+      ? [...new Set(turmas.map((t: unknown) => String(t).trim()).filter(Boolean))]
+      : []
+
     await supabaseAdmin
       .from('profiles')
-      .update({ full_name, role })
+      .update({
+        full_name,
+        role,
+        municipio: resolvedMunicipio,
+        school_name: resolvedSchoolName,
+        school_id: resolvedSchoolId,
+        turmas: role === 'professor' ? resolvedTurmas : [],
+      })
       .eq('id', newUser.user.id)
 
     return new Response(

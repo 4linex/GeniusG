@@ -51,7 +51,11 @@ export function StudentDetailPage() {
   const { answers } = useReportDataContext()
   const responseIds = useMemo(() => new Set(responses.map((r) => r.id)), [responses])
   const bnccSkills = useMemo(
-    () => aggregateSkillsFromAnswers(answers, responseIds, 'habilidade'),
+    () => aggregateSkillsFromAnswers(answers, responseIds, 'bncc'),
+    [answers, responseIds],
+  )
+  const saebSkills = useMemo(
+    () => aggregateSkillsFromAnswers(answers, responseIds, 'saeb'),
     [answers, responseIds],
   )
   const bloomSkills = useMemo(
@@ -59,6 +63,7 @@ export function StudentDetailPage() {
     [answers, responseIds],
   )
   const deficitSkills = bnccSkills.filter((s) => s.percentage < 60)
+  const deficitSaeb = saebSkills.filter((s) => s.percentage < 60)
 
   const formChartItems = useMemo(
     () =>
@@ -180,6 +185,18 @@ export function StudentDetailPage() {
                   displayValue: `${s.percentage}% (${s.correct}/${s.total})`,
                   color: CHART_COLORS.bloom,
                   isCritical: s.percentage < 60,
+                }))}
+              />
+            </Card>
+          )}
+          {deficitSaeb.length > 0 && (
+            <Card className="!p-5 lg:col-span-2 border-amber-500/20">
+              <HorizontalBarChart
+                title="Descritores SAEB com déficit"
+                items={deficitSaeb.map((s) => ({
+                  label: s.label,
+                  value: s.percentage,
+                  isCritical: true,
                 }))}
               />
             </Card>

@@ -8,10 +8,12 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { FormAssessmentDetailPage } from '@/pages/dashboard/FormAssessmentDetailPage'
 import { FormStudentResponsePage } from '@/pages/dashboard/FormStudentResponsePage'
 import { QuestionsPage } from '@/pages/admin/QuestionsPage'
+import { ComponentQuestionsPage } from '@/pages/admin/ComponentQuestionsPage'
 import { QuestionFormPage } from '@/pages/admin/QuestionFormPage'
 import { GeneralSettingsPage } from '@/pages/admin/GeneralSettingsPage'
 import { AdminTrailsPage } from '@/pages/admin/AdminTrailsPage'
 import { FormsHubPage } from '@/pages/forms/FormsHubPage'
+import { ComponentFormsPage } from '@/pages/forms/ComponentFormsPage'
 import { FormViewPage } from '@/pages/forms/FormViewPage'
 import { ResponsesPage } from '@/pages/professor/ResponsesPage'
 import { StudentDetailPage } from '@/pages/professor/StudentDetailPage'
@@ -72,13 +74,15 @@ export function AppRouter() {
                 element={<FormStudentResponsePage />}
               />
               <Route path="/formularios" element={<FormsHubPage />} />
+              <Route path="/formularios/componente/:componentSlug" element={<ComponentFormsPage />} />
               <Route path="/formularios/:id/visualizar" element={<FormViewPage />} />
 
               {/* Admin + Root — criar/editar formulários e questões */}
-              <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+              <Route element={<ProtectedRoute allowedRoles={['admin', 'root']} />}>
                 <Route path="/formularios/novo" element={<LazyFormBuilder />} />
                 <Route path="/formularios/:id" element={<LazyFormBuilder />} />
                 <Route path="/admin/questoes" element={<QuestionsPage />} />
+                <Route path="/admin/questoes/componente/:componentSlug" element={<ComponentQuestionsPage />} />
                 <Route path="/admin/questoes/nova" element={<QuestionFormPage />} />
                 <Route path="/admin/questoes/:id" element={<QuestionFormPage />} />
                 <Route path="/admin/configuracoes" element={<GeneralSettingsPage />} />

@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
+import { ReportScopeFields } from '@/components/reports/ReportScopeFields'
 import type { ReportFilters } from '@/lib/reportAnalytics'
 
 interface ReportFiltersBarProps {
@@ -14,6 +15,7 @@ interface ReportFiltersBarProps {
   showStudent?: boolean
   showSearch?: boolean
   showDates?: boolean
+  showScope?: boolean
   searchPlaceholder?: string
 }
 
@@ -26,6 +28,7 @@ export function ReportFiltersBar({
   showStudent = true,
   showSearch = true,
   showDates = true,
+  showScope = false,
   searchPlaceholder = 'Buscar...',
 }: ReportFiltersBarProps) {
   const patch = (partial: Partial<ReportFilters>) => onChange({ ...filters, ...partial })
@@ -35,7 +38,10 @@ export function ReportFiltersBar({
       filters.studentEmail ||
       filters.dateFrom ||
       filters.dateTo ||
-      filters.search,
+      filters.search ||
+      (filters.scopeType && filters.scopeType !== 'all') ||
+      filters.municipio ||
+      filters.school_name,
   )
 
   const fieldCount =
@@ -56,7 +62,9 @@ export function ReportFiltersBar({
             : 'grid-cols-1'
 
   return (
-    <Card className="p-4 sm:p-5 overflow-visible">
+    <Card className="p-4 sm:p-5 overflow-visible space-y-4">
+      {showScope && <ReportScopeFields filters={filters} onChange={onChange} />}
+
       <div className={`grid gap-3 grid-cols-1 ${gridCols}`}>
         {showSearch && (
           <div className="relative min-w-0">
