@@ -27,6 +27,8 @@ export interface RawAnswerRow {
   habilidade_bncc: string
   descritor_saeb: string
   bloom: string
+  point_value?: number
+  nivel_dificuldade?: string | null
 }
 
 export type SkillAggregateMode = 'bncc' | 'saeb' | 'bloom'

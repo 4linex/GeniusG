@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, FileBarChart } from 'lucide-react'
 import { useScopedResponses } from '@/hooks/useScopedResponses'
 import { useReportDataContext } from '@/contexts/ReportDataContext'
@@ -10,13 +10,20 @@ import { RecoveryReportModal } from '@/components/reports/RecoveryReportModal'
 import { StudentReportPickerModal } from '@/components/reports/StudentReportPickerModal'
 import { CHART_COLORS, DonutChart, HorizontalBarChart } from '@/components/reports/ReportCharts'
 import {
-  buildStudentFormRecoveryReport,
-  buildStudentRecoveryReport,
+  buildRecommendedTrailsFromPageResponses,
+  buildStudentFormRecoveryReportSync,
+  buildStudentRecoveryReportSync,
 } from '@/lib/recoveryReport'
 import type { RecoveryReportData } from '@/lib/recoveryReport'
 import { aggregateSkillsFromAnswers } from '@/lib/reportAnalytics'
 import { formatScore } from '@/lib/utils'
-import { formatPercentRange } from '@/lib/formTrails'
+import type { FormTrailMatch } from '@/lib/formTrails'
+import {
+  loadFormTrailsByFormIds,
+  buildResponseTrailInput,
+  resolveStudentResponseTrail,
+} from '@/lib/studentResponseTrail'
+import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
 import { StudentAnsweredFormCard } from '@/components/trails/StudentAnsweredFormCard'
 import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
 import type { FormResponse, FormTrail, LearningTrail } from '@/types/database'
@@ -32,11 +39,19 @@ interface ResponseWithTrail extends FormResponse {
 
 export function StudentDetailPage() {
   const { email: emailParam } = useParams()
-  const email = emailParam ? decodeURIComponent(emailParam) : ''
+  const email = useMemo(() => {
+    if (!emailParam) return ''
+    try {
+      return decodeURIComponent(emailParam)
+    } catch {
+      return emailParam
+    }
+  }, [emailParam])
   const [reportOpen, setReportOpen] = useState(false)
   const [reportPickerOpen, setReportPickerOpen] = useState(false)
   const [reportData, setReportData] = useState<RecoveryReportData | null>(null)
   const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
 
   const { responses: allResponses, loading } = useScopedResponses<ResponseWithTrail>(`
     *,
@@ -45,15 +60,34 @@ export function StudentDetailPage() {
       form_trail:form_trails(
       min_percent,
       max_percent,
+      title,
       learning_trail:learning_trails(${PROFESSOR_TRAIL_COLUMNS})
     )
     )
   `)
 
-  const responses = allResponses.filter((r) => r.student_email === email)
+  const responses = useMemo(
+    () =>
+      allResponses.filter(
+        (r) => r.student_email.trim().toLowerCase() === email.trim().toLowerCase(),
+      ),
+    [allResponses, email],
+  )
   const student = responses[0]
 
-  const { answers } = useReportDataContext()
+  const { answers: contextAnswers } = useReportDataContext()
+  const [fetchedAnswers, setFetchedAnswers] = useState<typeof contextAnswers>([])
+  const answers = useMemo(() => {
+    if (fetchedAnswers.length === 0) return contextAnswers
+    const byKey = new Map<string, (typeof contextAnswers)[number]>()
+    for (const row of contextAnswers) {
+      byKey.set(`${row.response_id}:${row.habilidade_bncc}:${row.is_correct}`, row)
+    }
+    for (const row of fetchedAnswers) {
+      byKey.set(`${row.response_id}:${row.habilidade_bncc}:${row.is_correct}`, row)
+    }
+    return [...byKey.values()]
+  }, [contextAnswers, fetchedAnswers])
   const responseIds = useMemo(() => new Set(responses.map((r) => r.id)), [responses])
   const bnccSkills = useMemo(
     () => aggregateSkillsFromAnswers(answers, responseIds, 'bncc'),
@@ -88,24 +122,122 @@ export function StudentDetailPage() {
       ? tctResponses.reduce((sum, r) => sum + (r.percentual_acerto ?? 0), 0) / tctResponses.length
       : null
 
-  const openGeneralReport = async (filters: { dateFrom?: string; dateTo?: string }) => {
+  const [formTrailsByFormId, setFormTrailsByFormId] = useState<Record<string, FormTrailMatch[]>>(
+    {},
+  )
+  const [trailsLoading, setTrailsLoading] = useState(false)
+
+  const formIdsKey = useMemo(() => {
+    const ids = [...new Set(responses.map((r) => r.form_id).filter(Boolean))].sort()
+    return ids.join(',')
+  }, [responses])
+
+  useEffect(() => {
+    const formIds = formIdsKey ? formIdsKey.split(',') : []
+
+    if (formIds.length === 0) {
+      setFormTrailsByFormId({})
+      setTrailsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setTrailsLoading(true)
+
+    loadFormTrailsByFormIds(formIds)
+      .then((map) => {
+        if (!cancelled) setFormTrailsByFormId(map)
+      })
+      .catch((err) => {
+        console.error('Erro ao carregar trilhas dos formulários:', err)
+        if (!cancelled) setFormTrailsByFormId({})
+      })
+      .finally(() => {
+        if (!cancelled) setTrailsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [formIdsKey])
+
+  useEffect(() => {
+    const missingIds = responses
+      .map((r) => r.id)
+      .filter((id) => !contextAnswers.some((a) => a.response_id === id))
+
+    if (missingIds.length === 0) {
+      setFetchedAnswers([])
+      return
+    }
+
+    let cancelled = false
+    fetchAnswersByResponseIds(missingIds)
+      .then((rows) => {
+        if (!cancelled) setFetchedAnswers(rows)
+      })
+      .catch((err) => {
+        console.warn('Não foi possível carregar respostas por questão:', err)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [responses, contextAnswers])
+
+  const preloadedTrails = useMemo(
+    () => buildRecommendedTrailsFromPageResponses(responses, formTrailsByFormId, answers),
+    [responses, formTrailsByFormId, answers],
+  )
+
+  const openGeneralReport = (filters: { dateFrom?: string; dateTo?: string }) => {
     setReportPickerOpen(false)
     setReportOpen(true)
     setReportLoading(true)
+    setReportError(null)
+    setReportData(null)
     try {
-      const data = await buildStudentRecoveryReport(allResponses, email, filters)
-      setReportData(data)
+      const data = buildStudentRecoveryReportSync(responses, answers, {
+        ...filters,
+        preloadedTrails,
+      })
+      if (!data) {
+        setReportError('Nenhuma avaliação encontrada para o período selecionado.')
+      } else {
+        setReportData(data)
+      }
+    } catch (err) {
+      console.error('Erro ao gerar relatório do aluno:', err)
+      setReportError(
+        err instanceof Error ? err.message : 'Não foi possível gerar o relatório.',
+      )
     } finally {
       setReportLoading(false)
     }
   }
 
-  const openFormReport = async (formId: string) => {
+  const openFormReport = (formId: string) => {
     setReportOpen(true)
     setReportLoading(true)
+    setReportError(null)
+    setReportData(null)
     try {
-      const data = await buildStudentFormRecoveryReport(allResponses, email, formId)
-      setReportData(data)
+      const data = buildStudentFormRecoveryReportSync(
+        responses,
+        formId,
+        answers,
+        formTrailsByFormId,
+      )
+      if (!data) {
+        setReportError('Não foi possível localizar esta avaliação para o aluno.')
+      } else {
+        setReportData(data)
+      }
+    } catch (err) {
+      console.error('Erro ao gerar relatório por formulário:', err)
+      setReportError(
+        err instanceof Error ? err.message : 'Não foi possível gerar o relatório.',
+      )
     } finally {
       setReportLoading(false)
     }
@@ -240,12 +372,20 @@ export function StudentDetailPage() {
 
       <div className="space-y-4">
         {responses.map((r) => {
-          const formTrail = r.trail_assignment?.form_trail
-          const trail = formTrail?.learning_trail ?? null
-          const trailLabel =
-            formTrail?.min_percent != null && formTrail?.max_percent != null
-              ? formatPercentRange(formTrail.min_percent, formTrail.max_percent)
-              : null
+          const formTrails = formTrailsByFormId[r.form_id] ?? []
+          const resolved = resolveStudentResponseTrail(
+            r.trail_assignment,
+            buildResponseTrailInput(r, answers),
+            formTrails,
+          )
+          const cardTrailsLoading =
+            trailsLoading && !resolved?.trail && formTrails.length === 0 && r.percentual_acerto == null
+          const emptyReason =
+            !cardTrailsLoading && !resolved
+              ? ('no-match' as const)
+              : !cardTrailsLoading && resolved && !resolved.trail && formTrails.length === 0
+                ? ('no-config' as const)
+                : undefined
           return (
             <StudentAnsweredFormCard
               key={r.id}
@@ -255,8 +395,19 @@ export function StudentDetailPage() {
               nivelProficiencia={r.nivel_proficiencia ?? null}
               correctAnswers={r.correct_answers ?? null}
               totalQuestions={r.total_questions ?? null}
-              trail={trail}
-              percentRange={trailLabel}
+              trail={resolved?.trail ?? null}
+              trailTitle={resolved?.displayTitle}
+              percentRange={resolved?.percentRange ?? null}
+              emptyReason={emptyReason}
+              trailsLoading={cardTrailsLoading}
+              matchPercent={resolved?.matchPercent ?? null}
+              classificationLabel={resolved?.classificationLabel ?? null}
+              weightedScoreLabel={
+                resolved?.diagnosis
+                  ? `${resolved.diagnosis.weightedScore}/${resolved.diagnosis.maxScore} pts`
+                  : null
+              }
+              safetyRuleApplied={resolved?.diagnosis?.safetyRuleApplied ?? false}
               onReport={
                 r.form_id
                   ? () => void openFormReport(r.form_id)
@@ -280,6 +431,7 @@ export function StudentDetailPage() {
         onClose={() => setReportOpen(false)}
         data={reportData}
         loading={reportLoading}
+        error={reportError}
       />
     </div>
   )
