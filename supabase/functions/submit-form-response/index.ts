@@ -8,7 +8,11 @@ import {
 } from '../_shared/scoring.ts'
 import { estimateItemParamsFromResponses } from '../_shared/itemCalibration.ts'
 import { clampScore, clampTheta, clampPointValue, sanitizeItemTriParams } from '../_shared/scoreBounds.ts'
-import { findFormTrailByPercent } from '../_shared/formTrails.ts'
+import {
+  aggregateSkillsFromSubmitAnswers,
+  computeTrailDiagnosisFromAnswers,
+  recommendFormTrail,
+} from '../_shared/trailRecommendation.ts'
 import {
   getFormLinkAvailability,
   getFormLinkAvailabilityError,
@@ -83,7 +87,7 @@ serve(async (req) => {
 
     const { data: questions } = await supabase
       .from('questions')
-      .select('id, param_dificuldade, param_discriminacao, param_acerto_caso, tri_calibrated_at, point_value')
+      .select('id, param_dificuldade, param_discriminacao, param_acerto_caso, tri_calibrated_at, point_value, habilidade_bncc, descritor_saeb, nivel_dificuldade')
       .in('id', questionIds)
 
     const questionMap = new Map(
@@ -196,8 +200,9 @@ serve(async (req) => {
       .eq('form_id', link.form_id)
       .order('min_percent')
 
-    const acertoPercent = clampScore(assessment.percentualAcerto)
-    const matchedTrail = findFormTrailByPercent(formTrails || [], acertoPercent)
+    const { trailAnswers } = aggregateSkillsFromSubmitAnswers(answerDetails, questionMap)
+    const diagnosis = computeTrailDiagnosisFromAnswers(trailAnswers)
+    const matchedTrail = recommendFormTrail(formTrails || [], diagnosis)
 
     // Trilha registrada para o professor — não exposta ao aluno na resposta
     if (matchedTrail) {

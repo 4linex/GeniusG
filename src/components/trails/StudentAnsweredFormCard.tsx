@@ -15,7 +15,14 @@ interface StudentAnsweredFormCardProps {
   correctAnswers: number | null
   totalQuestions: number | null
   trail: LearningTrail | null
+  trailTitle?: string
   percentRange: string | null
+  emptyReason?: 'no-config' | 'no-match'
+  trailsLoading?: boolean
+  matchPercent?: number | null
+  classificationLabel?: string | null
+  weightedScoreLabel?: string | null
+  safetyRuleApplied?: boolean
   onReport?: () => void
 }
 
@@ -27,25 +34,42 @@ export function StudentAnsweredFormCard({
   correctAnswers,
   totalQuestions,
   trail,
+  trailTitle,
   percentRange,
+  emptyReason,
+  trailsLoading,
+  matchPercent,
+  classificationLabel,
+  weightedScoreLabel,
+  safetyRuleApplied,
   onReport,
 }: StudentAnsweredFormCardProps) {
-  const trailTitle = trail?.title || 'Trilha de recomposição'
+  const heading = trailTitle?.trim() || trail?.title || 'Trilha de recomposição'
 
   return (
     <Card className="!p-0 overflow-hidden border-primary-500/20">
       <div className="p-4 sm:p-5">
-        {trail ? (
+        {trailsLoading ? (
+          <div className="flex justify-center py-8">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-500/30 border-t-primary-500" />
+          </div>
+        ) : trail || trailTitle ? (
           <RecommendedTrailHighlight
-            title={trailTitle}
+            title={heading}
             percentRange={percentRange}
             trail={trail}
             studentPercent={percentualAcerto}
+            matchPercent={matchPercent}
+            classificationLabel={classificationLabel}
+            weightedScoreLabel={weightedScoreLabel}
+            safetyRuleApplied={safetyRuleApplied}
           />
         ) : (
           <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-5 text-center">
             <p className="text-sm text-slate-500">
-              Nenhuma trilha atribuída para esta faixa de desempenho.
+              {emptyReason === 'no-config'
+                ? 'Este formulário não tem trilhas configuradas. Edite o formulário na aba Trilhas.'
+                : 'Nenhuma trilha atribuída para esta faixa de desempenho.'}
             </p>
           </div>
         )}
@@ -65,13 +89,22 @@ export function StudentAnsweredFormCard({
               TCT: {formatScore(percentualAcerto)}
             </Badge>
           )}
-          {nivelProficiencia && (
+          {classificationLabel ? (
             <Badge
-              variant={nivelProficiencia === 'avancado' ? 'success' : 'warning'}
+              variant={classificationLabel === 'Proficiente' ? 'success' : 'warning'}
               className="text-xs"
             >
-              {NIVEL_PROFICIENCIA_LABELS[nivelProficiencia]}
+              {classificationLabel}
             </Badge>
+          ) : (
+            nivelProficiencia && (
+              <Badge
+                variant={nivelProficiencia === 'avancado' ? 'success' : 'warning'}
+                className="text-xs"
+              >
+                TRI: {NIVEL_PROFICIENCIA_LABELS[nivelProficiencia]}
+              </Badge>
+            )
           )}
           {correctAnswers != null && totalQuestions != null && (
             <span className="text-xs text-slate-500">

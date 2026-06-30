@@ -131,21 +131,42 @@ export function resolveTrailContent(
   }
 }
 
+export function normalizeAcertoPercent(percent: number): number {
+  if (!Number.isFinite(percent)) return 0
+  const value = Number(percent)
+  // Alguns registros antigos podem estar em escala 0–1 em vez de 0–100.
+  if (value > 0 && value <= 1) return Math.round(value * 10000) / 100
+  return value
+}
+
 export function findFormTrailByPercent(
   trails: FormTrailMatch[],
   percent: number,
 ): FormTrailMatch | null {
+  if (trails.length === 0) return null
+
+  const normalized = normalizeAcertoPercent(percent)
   const sorted = [...trails].sort((a, b) => Number(a.min_percent) - Number(b.min_percent))
+  const epsilon = 0.01
 
   for (const trail of sorted) {
     const min = Number(trail.min_percent)
     const max = Number(trail.max_percent)
-    if (percent >= min && percent <= max) {
+    if (normalized + epsilon >= min && normalized - epsilon <= max) {
       return trail
     }
   }
 
-  return null
+  // Faixa não cobre o % exato (ex.: 100% com faixa máxima 90) — usa a faixa mais alta aplicável.
+  let fallback: FormTrailMatch | null = null
+  for (const trail of sorted) {
+    if (normalized >= Number(trail.min_percent)) {
+      fallback = trail
+    }
+  }
+  if (fallback) return fallback
+
+  return sorted[0] ?? null
 }
 
 export function formatPercentRange(min: number, max: number): string {

@@ -18,7 +18,7 @@ import type { Profile } from '@/types/database'
 const RESPONSES_SELECT = `
   *,
   form:forms(id, title, turma),
-  response_answers(is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom))
+  response_answers(is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom, point_value, nivel_dificuldade))
 `
 
 export interface ReportDataSnapshot {
@@ -29,7 +29,7 @@ export interface ReportDataSnapshot {
 let cachedSnapshot: ReportDataSnapshot | null = null
 let cacheKey: string | null = null
 
-const REPORT_DATA_CACHE_VERSION = 4
+const REPORT_DATA_CACHE_VERSION = 6
 
 function reportCacheKey(
   userId: string,

@@ -7,6 +7,11 @@ interface RecommendedTrailHighlightProps {
   percentRange: string | null
   trail: LearningTrail | null
   studentPercent?: number | null
+  /** Índice pedagógico (TCT + habilidades) usado para escolher a trilha. */
+  matchPercent?: number | null
+  classificationLabel?: string | null
+  weightedScoreLabel?: string | null
+  safetyRuleApplied?: boolean
 }
 
 export function RecommendedTrailHighlight({
@@ -14,6 +19,10 @@ export function RecommendedTrailHighlight({
   percentRange,
   trail,
   studentPercent,
+  matchPercent,
+  classificationLabel,
+  weightedScoreLabel,
+  safetyRuleApplied,
 }: RecommendedTrailHighlightProps) {
   return (
     <div className="rounded-2xl border-2 border-primary-500/45 bg-gradient-to-br from-primary-500/30 via-primary-600/15 to-primary-900/10 p-5 ring-2 ring-primary-500/25 shadow-lg shadow-primary-500/10">
@@ -27,9 +36,22 @@ export function RecommendedTrailHighlight({
           </p>
           <h3 className="mt-1.5 text-xl font-bold leading-snug text-white sm:text-2xl">{title}</h3>
           <div className="mt-3 flex flex-wrap gap-2">
+            {classificationLabel && (
+              <Badge variant="warning">{classificationLabel}</Badge>
+            )}
+            {weightedScoreLabel && <Badge variant="default">{weightedScoreLabel}</Badge>}
             {percentRange && <Badge variant="default">{percentRange}</Badge>}
             {studentPercent != null && (
-              <Badge variant="info">{studentPercent.toFixed(1)}% de acerto do aluno</Badge>
+              <Badge variant="info">{studentPercent.toFixed(1)}% TCT simples</Badge>
+            )}
+            {matchPercent != null &&
+              (studentPercent == null || Math.abs(matchPercent - studentPercent) >= 0.5) && (
+                <Badge variant="info">
+                  Pontuação ponderada: {matchPercent.toFixed(1)}%
+                </Badge>
+              )}
+            {safetyRuleApplied && (
+              <Badge variant="warning">Regra de segurança (itens fáceis)</Badge>
             )}
           </div>
           {(trail?.pedagogical_pdf_url || trail?.pedagogical_link_url) && (

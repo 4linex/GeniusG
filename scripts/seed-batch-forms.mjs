@@ -115,9 +115,30 @@ async function attachDefaultTrails(formId) {
   const trail3 = byKeyword('trilha 3') || trails[2]?.id
 
   const rows = [
-    trail1 && { form_id: formId, learning_trail_id: trail1, min_percent: 0, max_percent: 44, order_index: 0 },
-    trail2 && { form_id: formId, learning_trail_id: trail2, min_percent: 45, max_percent: 67, order_index: 1 },
-    trail3 && { form_id: formId, learning_trail_id: trail3, min_percent: 68, max_percent: 100, order_index: 2 },
+    trail1 && {
+      form_id: formId,
+      learning_trail_id: trail1,
+      title: trails.find((t) => t.id === trail1)?.title || 'Trilha 1',
+      min_percent: 0,
+      max_percent: 44,
+      order_index: 0,
+    },
+    trail2 && {
+      form_id: formId,
+      learning_trail_id: trail2,
+      title: trails.find((t) => t.id === trail2)?.title || 'Trilha 2',
+      min_percent: 45,
+      max_percent: 67,
+      order_index: 1,
+    },
+    trail3 && {
+      form_id: formId,
+      learning_trail_id: trail3,
+      title: trails.find((t) => t.id === trail3)?.title || 'Trilha 3',
+      min_percent: 68,
+      max_percent: 100,
+      order_index: 2,
+    },
   ].filter(Boolean)
 
   if (rows.length === 0) return

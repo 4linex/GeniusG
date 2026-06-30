@@ -8,6 +8,8 @@ export interface NestedResponseAnswer {
     habilidade_bncc: string | null
     descritor_saeb: string | null
     nivel_bloom: string | null
+    point_value?: number | null
+    nivel_dificuldade?: string | null
   } | null
 }
 
@@ -27,6 +29,8 @@ export function parseNestedAnswer(
     habilidade_bncc: skillLabel(q?.habilidade_bncc, EMPTY_SKILL_LABELS.bncc),
     descritor_saeb: skillLabel(q?.descritor_saeb, EMPTY_SKILL_LABELS.saeb),
     bloom: skillLabel(q?.nivel_bloom, EMPTY_SKILL_LABELS.bloom),
+    point_value: Number(q?.point_value ?? 1),
+    nivel_dificuldade: q?.nivel_dificuldade ?? null,
   }
 }
 
@@ -43,7 +47,7 @@ export function flattenNestedAnswers(
 }
 
 const ANSWER_SELECT =
-  'is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom)'
+  'is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom, point_value, nivel_dificuldade)'
 
 export async function fetchAnswersByResponseIds(responseIds: string[]): Promise<RawAnswerRow[]> {
   if (responseIds.length === 0) return []
@@ -64,6 +68,8 @@ export async function fetchAnswersByResponseIds(responseIds: string[]): Promise<
         habilidade_bncc: skillLabel(q?.habilidade_bncc, EMPTY_SKILL_LABELS.bncc),
         descritor_saeb: skillLabel(q?.descritor_saeb, EMPTY_SKILL_LABELS.saeb),
         bloom: skillLabel(q?.nivel_bloom, EMPTY_SKILL_LABELS.bloom),
+        point_value: Number(q?.point_value ?? 1),
+        nivel_dificuldade: q?.nivel_dificuldade ?? null,
       }
     })
   })

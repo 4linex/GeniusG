@@ -1,8 +1,12 @@
 import { supabase } from '@/lib/supabase'
 import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
 import { EMPTY_SKILL_LABELS } from '@/lib/reportAnalytics'
-import { formatPercentRange } from '@/lib/formTrails'
-import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
+import {
+  loadFormTrailsByFormIds,
+  buildResponseTrailInput,
+  resolveStudentResponseTrail,
+} from '@/lib/studentResponseTrail'
+import type { RawAnswerRow } from '@/lib/reportAnalytics'
 import type { LearningTrail, NivelProficiencia } from '@/types/database'
 
 export interface ResponseRecommendedTrail {
@@ -203,7 +207,7 @@ export async function loadStudentResponseDetail(formId: string, responseId: stri
           min_percent,
           max_percent,
           title,
-          learning_trail:learning_trails(${PROFESSOR_TRAIL_COLUMNS})
+          learning_trail:learning_trails(id, title, description, pdf_url, link_url, content, pedagogical_content, pedagogical_pdf_url, pedagogical_link_url, pedagogical_objectives, teacher_notes, nivel_proficiencia, created_at)
         )
       )
     `,
@@ -214,27 +218,6 @@ export async function loadStudentResponseDetail(formId: string, responseId: stri
 
   if (error || !response) return null
 
-  const assignment = response.trail_assignment as {
-    form_trail?: {
-      min_percent: number
-      max_percent: number
-      title?: string | null
-      learning_trail?: LearningTrail | null
-    } | null
-  } | null
-
-  const formTrail = assignment?.form_trail
-  const recommendedTrail: ResponseRecommendedTrail | null = formTrail
-    ? {
-        title: formTrail.learning_trail?.title || formTrail.title || 'Trilha de recomposição',
-        percentRange:
-          formTrail.min_percent != null && formTrail.max_percent != null
-            ? formatPercentRange(formTrail.min_percent, formTrail.max_percent)
-            : null,
-        learningTrail: formTrail.learning_trail ?? null,
-      }
-    : null
-
   const { data: answers } = await supabase
     .from('response_answers')
     .select(
@@ -242,12 +225,54 @@ export async function loadStudentResponseDetail(formId: string, responseId: stri
       is_correct,
       selected_alternative:question_alternatives(letter, text),
       question:questions(
-        id, title, enunciado, subtitle, image_url, habilidade_bncc, nivel_bloom,
+        id, title, enunciado, subtitle, image_url, habilidade_bncc, descritor_saeb, nivel_bloom, point_value, nivel_dificuldade,
         alternatives:question_alternatives(letter, text, is_correct, order_index)
       )
     `,
     )
     .eq('response_id', responseId)
+
+  const rawAnswers: RawAnswerRow[] = (answers || []).map((a) => {
+    const q = a.question as {
+      habilidade_bncc?: string | null
+      descritor_saeb?: string | null
+      nivel_bloom?: string | null
+      point_value?: number | null
+      nivel_dificuldade?: string | null
+    } | null
+    return {
+      response_id: responseId,
+      is_correct: Boolean(a.is_correct),
+      habilidade_bncc: q?.habilidade_bncc?.trim() || '',
+      descritor_saeb: q?.descritor_saeb?.trim() || '',
+      bloom: q?.nivel_bloom?.trim() || '',
+      point_value: Number(q?.point_value ?? 1),
+      nivel_dificuldade: q?.nivel_dificuldade ?? null,
+    }
+  })
+
+  const formTrailsByFormId = await loadFormTrailsByFormIds([formId])
+  const resolved = resolveStudentResponseTrail(
+    response.trail_assignment as Parameters<typeof resolveStudentResponseTrail>[0],
+    buildResponseTrailInput(
+      {
+        id: responseId,
+        percentual_acerto: response.percentual_acerto,
+        correct_answers: response.correct_answers,
+        total_questions: response.total_questions,
+      },
+      rawAnswers,
+    ),
+    formTrailsByFormId[formId] ?? [],
+  )
+
+  const recommendedTrail: ResponseRecommendedTrail | null = resolved
+    ? {
+        title: resolved.displayTitle,
+        percentRange: resolved.percentRange,
+        learningTrail: resolved.trail,
+      }
+    : null
 
   const wrongAnswers: WrongAnswerRow[] = []
   let correctCount = 0

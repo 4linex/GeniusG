@@ -1,8 +1,12 @@
 import { loadFormAssessmentDetail, loadTriByFormChart, type SkillBreakdownRow } from '@/lib/formAssessmentReport'
 import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
-import { EMPTY_SKILL_LABELS } from '@/lib/reportAnalytics'
+import { EMPTY_SKILL_LABELS, aggregateSkillsFromAnswers, type RawAnswerRow } from '@/lib/reportAnalytics'
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
-import { formatPercentRange } from '@/lib/formTrails'
+import { formatPercentRange, type FormTrailMatch } from '@/lib/formTrails'
+import {
+  buildResponseTrailInput,
+  resolveStudentResponseTrail,
+} from '@/lib/studentResponseTrail'
 import { resolveScopedFormIds } from '@/lib/scopedForms'
 import { reportScopeLabel, formatReportPeriod, type ReportFilters } from '@/lib/reportAnalytics'
 import {
@@ -39,6 +43,12 @@ export type RecoveryReportKind =
 export interface StudentReportOptions {
   dateFrom?: string
   dateTo?: string
+  /** Respostas por questão já carregadas na tela — evita nova consulta que pode falhar por RLS. */
+  preloadedAnswers?: RawAnswerRow[]
+  /** Quando true, `responses` já é o recorte do aluno (sem filtrar por e-mail de novo). */
+  alreadyScoped?: boolean
+  /** Trilhas já carregadas na tela do aluno. */
+  preloadedTrails?: RecoveryReportTrailRow[]
 }
 
 export type {
@@ -274,6 +284,384 @@ async function aggregateSkillsFromResponseIds(responseIds: string[]) {
   return { bncc: toRows(byBncc), saeb: toRows(bySaeb), bloom: toRows(byBloom) }
 }
 
+function aggregateAllSkillsFromRawAnswers(answers: RawAnswerRow[], responseIds: string[]) {
+  const idSet = new Set(responseIds)
+  return {
+    bncc: aggregateSkillsFromAnswers(answers, idSet, 'bncc'),
+    saeb: aggregateSkillsFromAnswers(answers, idSet, 'saeb'),
+    bloom: aggregateSkillsFromAnswers(answers, idSet, 'bloom'),
+  }
+}
+
+async function loadSkillsForResponses(
+  responseIds: string[],
+  preloadedAnswers?: RawAnswerRow[],
+) {
+  if (preloadedAnswers) {
+    return aggregateAllSkillsFromRawAnswers(preloadedAnswers, responseIds)
+  }
+  try {
+    return await aggregateSkillsFromResponseIds(responseIds)
+  } catch {
+    return {
+      bncc: [] as SkillBreakdownRow[],
+      saeb: [] as SkillBreakdownRow[],
+      bloom: [] as SkillBreakdownRow[],
+    }
+  }
+}
+
+function normalizeStudentEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+function matchesStudentEmail(rowEmail: string, email: string): boolean {
+  return normalizeStudentEmail(rowEmail) === normalizeStudentEmail(email)
+}
+
+function matchesStudentForm(
+  row: StudentResponseRow,
+  email: string,
+  formId: string,
+): boolean {
+  if (!matchesStudentEmail(row.student_email, email)) return false
+  const nestedFormId = row.form && 'id' in row.form ? row.form.id : undefined
+  return row.form_id === formId || nestedFormId === formId
+}
+
+export type StudentPageResponse = StudentResponseRow & {
+  trail_assignment?:
+    | {
+        form_trail?:
+          | {
+              min_percent: number
+              max_percent: number
+              title?: string | null
+              learning_trail?: LearningTrail | LearningTrail[] | null
+            }
+          | Array<{
+              min_percent: number
+              max_percent: number
+              title?: string | null
+              learning_trail?: LearningTrail | LearningTrail[] | null
+            }>
+          | null
+      }
+    | Array<{
+        form_trail?:
+          | {
+              min_percent: number
+              max_percent: number
+              title?: string | null
+              learning_trail?: LearningTrail | LearningTrail[] | null
+            }
+          | null
+      }>
+    | null
+}
+
+export function buildRecommendedTrailsFromPageResponses(
+  responses: StudentPageResponse[],
+  formTrailsByFormId?: Record<string, FormTrailMatch[]>,
+  preloadedAnswers?: RawAnswerRow[],
+): RecoveryReportTrailRow[] {
+  const rows: RecoveryReportTrailRow[] = []
+
+  for (const response of responses) {
+    const resolved = resolveStudentResponseTrail(
+      response.trail_assignment,
+      buildResponseTrailInput(response, preloadedAnswers),
+      response.form_id && formTrailsByFormId
+        ? formTrailsByFormId[response.form_id] ?? []
+        : [],
+    )
+    if (!resolved) continue
+
+    const trail = resolved.trail
+    const pedagogicalSummary = trail?.pedagogical_content
+      ? stripHtml(trail.pedagogical_content).slice(0, 280)
+      : null
+
+    rows.push({
+      studentName: response.student_name,
+      studentEmail: response.student_email,
+      formTitle: response.form?.title,
+      percentRange: resolved.percentRange,
+      studentPercent: response.percentual_acerto ?? null,
+      trailTitle: resolved.displayTitle,
+      pedagogicalObjectives: trail?.pedagogical_objectives ?? null,
+      teacherNotes: trail?.teacher_notes ?? null,
+      pedagogicalSummary: pedagogicalSummary || null,
+      pedagogicalPdfUrl: trail?.pedagogical_pdf_url ?? null,
+      pedagogicalLinkUrl: trail?.pedagogical_link_url ?? null,
+    })
+  }
+
+  return rows.sort((a, b) => (a.studentName || '').localeCompare(b.studentName || '', 'pt-BR'))
+}
+
+function buildStudentReportSectionsSync(
+  studentResponses: StudentResponseRow[],
+  bncc: SkillBreakdownRow[],
+  saeb: SkillBreakdownRow[],
+  _bloom: SkillBreakdownRow[],
+  _areaRows: AreaPerformanceRow[],
+) {
+  const evolutionSeries = buildEvolutionSeries(studentResponses)
+  const evolutionDelta =
+    evolutionSeries.length >= 2
+      ? Math.round(
+          (evolutionSeries[evolutionSeries.length - 1].value - evolutionSeries[0].value) * 10,
+        ) / 10
+      : null
+
+  return {
+    nivelDistribution: buildNivelDistribution(studentResponses),
+    criticalSkillsTable: buildCriticalSkillsTable(bncc, saeb),
+    errorDescriptors: buildErrorDescriptors(saeb),
+    trailRanking: [] as RecoveryReportTrailRanking[],
+    evolutionSeries,
+    evolutionDelta,
+    executiveSummary: undefined,
+  }
+}
+
+function buildStudentAreaRows(studentResponses: StudentResponseRow[]): AreaPerformanceRow[] {
+  if (studentResponses.length <= 1) return []
+
+  return studentResponses
+    .map((r) => ({
+      label: r.form?.title || 'Formulário',
+      percentage: r.percentual_acerto ?? 0,
+      level: percentageToLevel(r.percentual_acerto ?? 0),
+      detail:
+        r.percentual_acerto != null
+          ? formPerformanceTier(r.percentual_acerto)
+          : r.nivel_proficiencia
+            ? NIVEL_PROFICIENCIA_LABELS[r.nivel_proficiencia]
+            : undefined,
+    }))
+    .sort((a, b) => b.percentage - a.percentage)
+}
+
+function assembleStudentRecoveryReportData(
+  studentResponses: StudentResponseRow[],
+  bncc: SkillBreakdownRow[],
+  saeb: SkillBreakdownRow[],
+  bloom: SkillBreakdownRow[],
+  recommendedTrails: RecoveryReportTrailRow[],
+): RecoveryReportData {
+  const student = studentResponses[0]
+  const tctScores = studentResponses
+    .map((r) => r.percentual_acerto)
+    .filter((s): s is number => s != null)
+  const overallPercentage = tctScores.length > 0 ? avg(tctScores) : 0
+  const averageTheta = avgTheta(studentResponses.map((r) => r.theta ?? null))
+  const areaRows = buildStudentAreaRows(studentResponses)
+
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
+  const strongSkills = [
+    ...bncc.filter((s) => s.percentage >= 70).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage >= 70).map((s) => s.label),
+  ]
+
+  const highlights: string[] = [
+    `${studentResponses.length} formulário(s) analisado(s) no período.`,
+    overallPercentage >= 60
+      ? `Desempenho geral de ${overallPercentage}% indica progresso consistente.`
+      : `Desempenho geral de ${overallPercentage}% — atenção às habilidades prioritárias.`,
+  ]
+
+  if (strongSkills.length > 0) {
+    highlights.push(`Destaque positivo em: ${strongSkills.slice(0, 2).join(', ')}.`)
+  } else if (weakSkills.length > 0) {
+    highlights.push(`${weakSkills.length} habilidade(s) abaixo de 60% de acerto.`)
+  } else {
+    highlights.push('Continue acompanhando a evolução nas próximas avaliações.')
+  }
+
+  if (recommendedTrails.length > 0) {
+    highlights.push(
+      `${recommendedTrails.length} trilha(s) de recomposição atribuída(s) com base no desempenho.`,
+    )
+  }
+
+  const sections = buildStudentReportSectionsSync(studentResponses, bncc, saeb, bloom, areaRows)
+
+  return {
+    kind: 'student',
+    reportTitle: `${APP_NAME} — Relatório do Aluno`,
+    reportDate: formatReportDate(),
+    studentName: student.student_name,
+    studentEmail: student.student_email,
+    turma: studentResponses[0]?.turma || student.form?.turma || '—',
+    escola: studentResponses[0]?.school_name || '—',
+    municipio: studentResponses[0]?.municipio || undefined,
+    periodo: formatReportPeriod(studentResponses),
+    overallPercentage,
+    averageTheta,
+    totalItems: studentResponses.length,
+    highlights,
+    performanceBreakdown: buildBreakdownFromPercentages(
+      areaRows.length > 0
+        ? areaRows.map((r) => ({ pct: r.percentage }))
+        : studentResponses.map((r) => ({ pct: r.percentual_acerto ?? 0 })),
+    ),
+    areaRows,
+    weakSkills: weakSkills.slice(0, 6),
+    strongSkills: strongSkills.slice(0, 6),
+    recommendedTrails,
+    ...sections,
+  }
+}
+
+/** Gera relatório geral do aluno só com dados já carregados na página (sem Supabase). */
+export function buildStudentRecoveryReportSync(
+  studentResponses: StudentResponseRow[],
+  preloadedAnswers: RawAnswerRow[],
+  options?: Pick<StudentReportOptions, 'dateFrom' | 'dateTo'> & {
+    preloadedTrails?: RecoveryReportTrailRow[]
+  },
+): RecoveryReportData | null {
+  let rows = [...studentResponses]
+  if (rows.length === 0) return null
+
+  rows = applyDashboardDateFilters(rows, {
+    dateFrom: options?.dateFrom,
+    dateTo: options?.dateTo,
+  })
+  if (rows.length === 0) return null
+
+  const responseIds = rows.map((r) => r.id)
+  const { bncc, saeb, bloom } = aggregateAllSkillsFromRawAnswers(preloadedAnswers, responseIds)
+  const recommendedTrails =
+    options?.preloadedTrails ??
+    buildRecommendedTrailsFromPageResponses(
+      rows as StudentPageResponse[],
+      undefined,
+      preloadedAnswers,
+    )
+
+  return assembleStudentRecoveryReportData(rows, bncc, saeb, bloom, recommendedTrails)
+}
+
+function findStudentFormResponse(
+  responses: StudentResponseRow[],
+  formId: string,
+): StudentResponseRow | undefined {
+  return responses.find((r) => {
+    const nestedFormId = r.form && 'id' in r.form ? r.form.id : undefined
+    return r.form_id === formId || nestedFormId === formId
+  })
+}
+
+function assembleStudentFormRecoveryReportData(
+  response: StudentResponseRow,
+  bncc: SkillBreakdownRow[],
+  saeb: SkillBreakdownRow[],
+  bloom: SkillBreakdownRow[],
+  recommendedTrails: RecoveryReportTrailRow[],
+): RecoveryReportData {
+  const overallPercentage = response.percentual_acerto ?? 0
+  const averageTheta = response.theta ?? null
+  const correct = response.correct_answers
+  const total = response.total_questions
+
+  const weakSkills = [
+    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
+  ]
+  const strongSkills = [
+    ...bncc.filter((s) => s.percentage >= 70).map((s) => s.label),
+    ...saeb.filter((s) => s.percentage >= 70).map((s) => s.label),
+  ]
+
+  const highlights: string[] = [
+    response.form?.title
+      ? `Formulário: ${response.form.title}.`
+      : 'Avaliação individual do aluno.',
+    correct != null && total != null
+      ? `Acertou ${correct} de ${total} questões (${overallPercentage}%).`
+      : `Desempenho TCT: ${overallPercentage}%.`,
+  ]
+  if (weakSkills.length > 0) {
+    highlights.push(`${weakSkills.length} habilidade(s) com déficit nesta avaliação.`)
+  }
+  if (strongSkills.length > 0) {
+    highlights.push(`Destaque em: ${strongSkills.slice(0, 2).join(', ')}.`)
+  }
+  if (recommendedTrails.length > 0) {
+    highlights.push(`Trilha recomendada: ${recommendedTrails[0].trailTitle}.`)
+  }
+
+  const areaRow = {
+    label: response.form?.title || 'Formulário',
+    percentage: overallPercentage,
+    level: percentageToLevel(overallPercentage),
+  }
+  const sections = buildStudentReportSectionsSync([response], bncc, saeb, bloom, [areaRow])
+
+  return {
+    kind: 'studentForm',
+    reportTitle: `${APP_NAME} — Relatório por Formulário`,
+    reportDate: formatReportDate(),
+    studentName: response.student_name,
+    studentEmail: response.student_email,
+    formTitle: response.form?.title,
+    turma: response.turma || response.form?.turma || '—',
+    escola: response.school_name || '—',
+    municipio: response.municipio || undefined,
+    periodo: formatReportPeriod([response]),
+    overallPercentage,
+    averageTheta,
+    totalItems: total ?? undefined,
+    highlights,
+    performanceBreakdown: buildBreakdownFromPercentages([{ pct: overallPercentage }]),
+    areaRows: [areaRow],
+    weakSkills: weakSkills.slice(0, 8),
+    strongSkills: strongSkills.slice(0, 8),
+    recommendedTrails,
+    summaryMetrics:
+      correct != null && total != null
+        ? [
+            { label: 'Questões corretas', value: `${correct} de ${total}` },
+            { label: 'Taxa de acerto', value: `${overallPercentage}%` },
+          ]
+        : undefined,
+    ...sections,
+  }
+}
+
+/** Gera relatório por formulário só com dados já carregados na página (sem Supabase). */
+export function buildStudentFormRecoveryReportSync(
+  studentResponses: StudentResponseRow[],
+  formId: string,
+  preloadedAnswers: RawAnswerRow[],
+  formTrailsByFormId?: Record<string, FormTrailMatch[]>,
+): RecoveryReportData | null {
+  const response = findStudentFormResponse(studentResponses, formId)
+  if (!response) return null
+
+  const responseIds = [response.id]
+  const { bncc, saeb, bloom } = aggregateAllSkillsFromRawAnswers(preloadedAnswers, responseIds)
+  const recommendedTrails = buildRecommendedTrailsFromPageResponses(
+    [response as StudentPageResponse],
+    formTrailsByFormId,
+    preloadedAnswers,
+  )
+
+  return assembleStudentFormRecoveryReportData(
+    response,
+    bncc,
+    saeb,
+    bloom,
+    recommendedTrails,
+  )
+}
+
 async function fetchRecommendedTrailsByResponseIds(
   responseIds: string[],
 ): Promise<RecoveryReportTrailRow[]> {
@@ -355,7 +743,7 @@ interface StudentResponseRow {
   municipio?: string | null
   school_name?: string | null
   turma?: string | null
-  form?: { title: string; turma?: string | null } | null
+  form?: { id?: string; title: string; turma?: string | null } | null
 }
 
 function reportKindTitle(kind: RecoveryReportKind): string {
@@ -556,7 +944,7 @@ async function enrichReportSections(
   ]
   const trailRanking = await buildTrailRanking(
     responses.map((r) => ({ id: r.id, student_email: r.student_email })),
-  )
+  ).catch(() => [] as Awaited<ReturnType<typeof buildTrailRanking>>)
 
   const evolutionSeries = buildEvolutionSeries(responses)
   const evolutionDelta =
@@ -591,108 +979,39 @@ export async function buildStudentRecoveryReport(
   email: string,
   options?: StudentReportOptions,
 ): Promise<RecoveryReportData | null> {
-  let studentResponses = responses.filter((r) => r.student_email === email)
-  if (studentResponses.length === 0) return null
+  const scoped = options?.alreadyScoped
+    ? responses
+    : responses.filter((r) => matchesStudentEmail(r.student_email, email))
 
-  studentResponses = applyDashboardDateFilters(studentResponses, {
+  if (scoped.length === 0) return null
+
+  if (options?.preloadedAnswers) {
+    return buildStudentRecoveryReportSync(scoped, options.preloadedAnswers, {
+      dateFrom: options.dateFrom,
+      dateTo: options.dateTo,
+      preloadedTrails: options.preloadedTrails,
+    })
+  }
+
+  let studentResponses = applyDashboardDateFilters(scoped, {
     dateFrom: options?.dateFrom,
     dateTo: options?.dateTo,
   })
   if (studentResponses.length === 0) return null
 
-  const student = studentResponses[0]
-  const tctScores = studentResponses.map((r) => r.percentual_acerto).filter((s): s is number => s != null)
-  const overallPercentage = avg(tctScores)
-  const averageTheta = avgTheta(studentResponses.map((r) => r.theta ?? null))
-
   const responseIds = studentResponses.map((r) => r.id)
   const [{ bncc, saeb, bloom }, recommendedTrails] = await Promise.all([
-    aggregateSkillsFromResponseIds(responseIds),
-    fetchRecommendedTrailsByResponseIds(responseIds),
+    loadSkillsForResponses(responseIds),
+    fetchRecommendedTrailsByResponseIds(responseIds).catch(() => []),
   ])
 
-  const areaRows: AreaPerformanceRow[] =
-    studentResponses.length > 1
-      ? studentResponses
-          .map((r) => ({
-            label: r.form?.title || 'Formulário',
-            percentage: r.percentual_acerto ?? 0,
-            level: percentageToLevel(r.percentual_acerto ?? 0),
-            detail:
-              r.percentual_acerto != null
-                ? formPerformanceTier(r.percentual_acerto)
-                : r.nivel_proficiencia
-                  ? NIVEL_PROFICIENCIA_LABELS[r.nivel_proficiencia]
-                  : undefined,
-          }))
-          .sort((a, b) => b.percentage - a.percentage)
-      : []
-
-  const weakSkills = [
-    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
-    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
-  ]
-  const strongSkills = [
-    ...bncc.filter((s) => s.percentage >= 70).map((s) => s.label),
-    ...saeb.filter((s) => s.percentage >= 70).map((s) => s.label),
-  ]
-
-  const highlights: string[] = [
-    `${studentResponses.length} formulário(s) analisado(s) no período.`,
-    overallPercentage >= 60
-      ? `Desempenho geral de ${overallPercentage}% indica progresso consistente.`
-      : `Desempenho geral de ${overallPercentage}% — atenção às habilidades prioritárias.`,
-  ]
-
-  if (strongSkills.length > 0) {
-    highlights.push(`Destaque positivo em: ${strongSkills.slice(0, 2).join(', ')}.`)
-  } else if (weakSkills.length > 0) {
-    highlights.push(`${weakSkills.length} habilidade(s) abaixo de 60% de acerto.`)
-  } else {
-    highlights.push('Continue acompanhando a evolução nas próximas avaliações.')
-  }
-
-  if (recommendedTrails.length > 0) {
-    highlights.push(
-      `${recommendedTrails.length} trilha(s) de recomposição atribuída(s) com base no desempenho.`,
-    )
-  }
-
-  const periodo = formatReportPeriod(studentResponses)
-  const sections = await enrichReportSections(
+  return assembleStudentRecoveryReportData(
     studentResponses,
     bncc,
     saeb,
     bloom,
-    areaRows,
-    {
-      municipio: studentResponses[0]?.municipio ?? undefined,
-      escola: studentResponses[0]?.school_name ?? undefined,
-      turma: studentResponses[0]?.turma ?? student.form?.turma ?? undefined,
-    },
-  )
-
-  return {
-    kind: 'student',
-    reportTitle: `${APP_NAME} — Relatório do Aluno`,
-    reportDate: formatReportDate(),
-    studentName: student.student_name,
-    studentEmail: student.student_email,
-    turma: studentResponses[0]?.turma || student.form?.turma || '—',
-    escola: studentResponses[0]?.school_name || '—',
-    municipio: studentResponses[0]?.municipio || undefined,
-    periodo,
-    overallPercentage,
-    averageTheta,
-    totalItems: studentResponses.length,
-    highlights,
-    performanceBreakdown: buildBreakdownFromPercentages(areaRows.map((r) => ({ pct: r.percentage }))),
-    areaRows,
-    weakSkills: weakSkills.slice(0, 6),
-    strongSkills: strongSkills.slice(0, 6),
     recommendedTrails,
-    ...sections,
-  }
+  )
 }
 
 /** Relatório de um único formulário respondido pelo aluno. */
@@ -700,102 +1019,32 @@ export async function buildStudentFormRecoveryReport(
   responses: StudentResponseRow[],
   email: string,
   formId: string,
+  options?: Pick<StudentReportOptions, 'preloadedAnswers' | 'preloadedTrails' | 'alreadyScoped'>,
 ): Promise<RecoveryReportData | null> {
-  const response = responses.find((r) => r.student_email === email && r.form_id === formId)
+  const scoped = options?.alreadyScoped
+    ? responses
+    : responses.filter((r) => matchesStudentEmail(r.student_email, email))
+
+  if (options?.preloadedAnswers) {
+    return buildStudentFormRecoveryReportSync(scoped, formId, options.preloadedAnswers)
+  }
+
+  const response = scoped.find((r) => matchesStudentForm(r, email, formId))
   if (!response) return null
 
-  const overallPercentage = response.percentual_acerto ?? 0
-  const averageTheta = response.theta ?? null
   const responseIds = [response.id]
-
   const [{ bncc, saeb, bloom }, recommendedTrails] = await Promise.all([
-    aggregateSkillsFromResponseIds(responseIds),
-    fetchRecommendedTrailsByResponseIds(responseIds),
+    loadSkillsForResponses(responseIds),
+    fetchRecommendedTrailsByResponseIds(responseIds).catch(() => []),
   ])
 
-  const weakSkills = [
-    ...bncc.filter((s) => s.percentage < 60).map((s) => s.label),
-    ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
-  ]
-  const strongSkills = [
-    ...bncc.filter((s) => s.percentage >= 70).map((s) => s.label),
-    ...saeb.filter((s) => s.percentage >= 70).map((s) => s.label),
-  ]
-
-  const correct = response.correct_answers
-  const total = response.total_questions
-  const highlights: string[] = [
-    response.form?.title
-      ? `Formulário: ${response.form.title}.`
-      : 'Avaliação individual do aluno.',
-    correct != null && total != null
-      ? `Acertou ${correct} de ${total} questões (${overallPercentage}%).`
-      : `Desempenho TCT: ${overallPercentage}%.`,
-  ]
-  if (weakSkills.length > 0) {
-    highlights.push(`${weakSkills.length} habilidade(s) com déficit nesta avaliação.`)
-  }
-  if (strongSkills.length > 0) {
-    highlights.push(`Destaque em: ${strongSkills.slice(0, 2).join(', ')}.`)
-  }
-  if (recommendedTrails.length > 0) {
-    highlights.push(`Trilha recomendada: ${recommendedTrails[0].trailTitle}.`)
-  }
-
-  const sections = await enrichReportSections(
-    [response],
+  return assembleStudentFormRecoveryReportData(
+    response,
     bncc,
     saeb,
     bloom,
-    [
-      {
-        label: response.form?.title || 'Formulário',
-        percentage: overallPercentage,
-        level: percentageToLevel(overallPercentage),
-      },
-    ],
-    {
-      municipio: response.municipio ?? undefined,
-      escola: response.school_name ?? undefined,
-      turma: response.turma ?? response.form?.turma ?? undefined,
-    },
-  )
-
-  return {
-    kind: 'studentForm',
-    reportTitle: `${APP_NAME} — Relatório por Formulário`,
-    reportDate: formatReportDate(),
-    studentName: response.student_name,
-    studentEmail: response.student_email,
-    formTitle: response.form?.title,
-    turma: response.turma || response.form?.turma || '—',
-    escola: response.school_name || '—',
-    municipio: response.municipio || undefined,
-    periodo: formatReportPeriod([response]),
-    overallPercentage,
-    averageTheta,
-    totalItems: total ?? undefined,
-    highlights,
-    performanceBreakdown: buildBreakdownFromPercentages([{ pct: overallPercentage }]),
-    areaRows: [
-      {
-        label: response.form?.title || 'Formulário',
-        percentage: overallPercentage,
-        level: percentageToLevel(overallPercentage),
-      },
-    ],
-    weakSkills: weakSkills.slice(0, 8),
-    strongSkills: strongSkills.slice(0, 8),
     recommendedTrails,
-    summaryMetrics:
-      correct != null && total != null
-        ? [
-            { label: 'Questões corretas', value: `${correct} de ${total}` },
-            { label: 'Taxa de acerto', value: `${overallPercentage}%` },
-          ]
-        : undefined,
-    ...sections,
-  }
+  )
 }
 
 export async function buildFormRecoveryReport(

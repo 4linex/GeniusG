@@ -149,6 +149,7 @@ async function saveFormTrails(formId: string, trails: FormTrailConfig[]): Promis
     .map((t, order_index) => ({
       form_id: formId,
       learning_trail_id: t.learningTrailId,
+      title: t.title?.trim() || 'Trilha de recomposição',
       min_percent: t.minPercent,
       max_percent: t.maxPercent,
       order_index,

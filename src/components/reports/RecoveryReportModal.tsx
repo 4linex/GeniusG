@@ -11,9 +11,10 @@ interface RecoveryReportModalProps {
   onClose: () => void
   data: RecoveryReportData | null
   loading?: boolean
+  error?: string | null
 }
 
-export function RecoveryReportModal({ open, onClose, data, loading }: RecoveryReportModalProps) {
+export function RecoveryReportModal({ open, onClose, data, loading, error }: RecoveryReportModalProps) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
@@ -98,6 +99,11 @@ export function RecoveryReportModal({ open, onClose, data, loading }: RecoveryRe
             {exportError}
           </p>
         )}
+        {!loading && error && !data && (
+          <p className="px-5 py-2 text-sm text-red-400 bg-red-500/10 border-b border-red-500/20">
+            {error}
+          </p>
+        )}
 
         <div className="overflow-auto flex-1 p-4 bg-slate-800/50">
           {loading ? (
@@ -109,7 +115,9 @@ export function RecoveryReportModal({ open, onClose, data, loading }: RecoveryRe
               <RecoveryReportDocument data={data} />
             </div>
           ) : (
-            <p className="text-slate-400 text-center py-16">Não foi possível gerar o relatório.</p>
+            <p className="text-slate-400 text-center py-16">
+              {error || 'Não foi possível gerar o relatório.'}
+            </p>
           )}
         </div>
       </div>

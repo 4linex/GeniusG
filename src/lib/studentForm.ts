@@ -1,6 +1,11 @@
 import { supabase, SUPABASE_FUNCTIONS_URL } from '@/lib/supabase'
 import { invokeEdgeFunction } from '@/lib/edgeFunctions'
-import { findFormTrailByPercent } from '@/lib/formTrails'
+import {
+  aggregateSkillsFromSubmitAnswers,
+  computeTrailDiagnosisFromAnswers,
+  recommendFormTrail,
+} from '@/lib/trailRecommendation'
+import type { FormTrailMatch } from '@/lib/formTrails'
 import {
   defaultTriParams,
   processAssessment,
@@ -223,7 +228,7 @@ async function submitStudentFormFromDb(
 
   const { data: questions } = await supabase
     .from('questions')
-    .select('id, param_dificuldade, param_discriminacao, param_acerto_caso, tri_calibrated_at, point_value')
+    .select('id, param_dificuldade, param_discriminacao, param_acerto_caso, tri_calibrated_at, point_value, habilidade_bncc, descritor_saeb, nivel_dificuldade')
     .in('id', questionIds)
 
   const questionMap = new Map((questions || []).map((q) => [q.id, q]))
@@ -317,26 +322,14 @@ async function submitStudentFormFromDb(
     .eq('form_id', link.form_id)
     .order('min_percent')
 
-  const acertoPercent = clampScore(assessment.percentualAcerto)
-  const matchedTrail = findFormTrailByPercent(
-    (formTrails as {
-      id: string
-      min_percent: number
-      max_percent: number
-      title?: string | null
-      description?: string | null
-      pdf_url?: string | null
-      link_url?: string | null
-      content?: string | null
-      learning_trail?: {
-        title?: string
-        description?: string | null
-        pdf_url?: string | null
-        link_url?: string | null
-        content?: string | null
-      } | null
-    }[]) || [],
-    acertoPercent,
+  const { bncc, saeb, trailAnswers } = aggregateSkillsFromSubmitAnswers(
+    answerDetails,
+    questionMap,
+  )
+  const diagnosis = computeTrailDiagnosisFromAnswers(trailAnswers, bncc, saeb)
+  const matchedTrail = recommendFormTrail(
+    (formTrails as FormTrailMatch[]) || [],
+    diagnosis,
   )
 
   if (matchedTrail) {
