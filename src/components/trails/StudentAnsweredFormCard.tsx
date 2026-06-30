@@ -16,6 +16,11 @@ interface StudentAnsweredFormCardProps {
   totalQuestions: number | null
   trail: LearningTrail | null
   trailTitle?: string
+  trailProfessorPdfUrl?: string | null
+  trailStudentPdfUrl?: string | null
+  /** @deprecated use trailProfessorPdfUrl */
+  trailPdfUrl?: string | null
+  enableTrailPdfPreview?: boolean
   percentRange: string | null
   emptyReason?: 'no-config' | 'no-match'
   trailsLoading?: boolean
@@ -35,6 +40,10 @@ export function StudentAnsweredFormCard({
   totalQuestions,
   trail,
   trailTitle,
+  trailProfessorPdfUrl,
+  trailStudentPdfUrl,
+  trailPdfUrl,
+  enableTrailPdfPreview,
   percentRange,
   emptyReason,
   trailsLoading,
@@ -58,6 +67,9 @@ export function StudentAnsweredFormCard({
             title={heading}
             percentRange={percentRange}
             trail={trail}
+            professorPdfUrl={trailProfessorPdfUrl ?? trailPdfUrl}
+            studentPdfUrl={trailStudentPdfUrl}
+            enablePdfPreview={enableTrailPdfPreview}
             studentPercent={percentualAcerto}
             matchPercent={matchPercent}
             classificationLabel={classificationLabel}

@@ -86,6 +86,21 @@ export function TrailCard({
 
   if (!onOpen) return content
 
+  const openResourceUrl = !isProfessor ? pdfUrl ?? linkUrl : null
+  if (openResourceUrl) {
+    return (
+      <a
+        href={openResourceUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="block w-full text-left"
+        aria-label={pdfUrl ? `Abrir PDF da trilha ${trail.title}` : `Abrir trilha ${trail.title}`}
+      >
+        {content}
+      </a>
+    )
+  }
+
   return (
     <button type="button" className="w-full text-left" onClick={onOpen}>
       {content}

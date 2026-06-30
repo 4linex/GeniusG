@@ -24,9 +24,10 @@ import {
   resolveStudentResponseTrail,
 } from '@/lib/studentResponseTrail'
 import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
+import { enrichResolvedWithTrailBank, loadLearningTrailsByNivel } from '@/lib/trailBank'
 import { StudentAnsweredFormCard } from '@/components/trails/StudentAnsweredFormCard'
 import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
-import type { FormResponse, FormTrail, LearningTrail } from '@/types/database'
+import type { FormResponse, FormTrail, LearningTrail, NivelProficiencia } from '@/types/database'
 
 interface ResponseWithTrail extends FormResponse {
   form?: { title: string }
@@ -126,6 +127,9 @@ export function StudentDetailPage() {
     {},
   )
   const [trailsLoading, setTrailsLoading] = useState(false)
+  const [trailBankByNivel, setTrailBankByNivel] = useState<
+    Map<NivelProficiencia, LearningTrail>
+  >(new Map())
 
   const formIdsKey = useMemo(() => {
     const ids = [...new Set(responses.map((r) => r.form_id).filter(Boolean))].sort()
@@ -160,6 +164,20 @@ export function StudentDetailPage() {
       cancelled = true
     }
   }, [formIdsKey])
+
+  useEffect(() => {
+    let cancelled = false
+    loadLearningTrailsByNivel()
+      .then((map) => {
+        if (!cancelled) setTrailBankByNivel(map)
+      })
+      .catch((err) => {
+        console.warn('Erro ao carregar banco de trilhas:', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const missingIds = responses
@@ -373,11 +391,14 @@ export function StudentDetailPage() {
       <div className="space-y-4">
         {responses.map((r) => {
           const formTrails = formTrailsByFormId[r.form_id] ?? []
-          const resolved = resolveStudentResponseTrail(
+          const resolvedRaw = resolveStudentResponseTrail(
             r.trail_assignment,
             buildResponseTrailInput(r, answers),
             formTrails,
           )
+          const resolved = resolvedRaw
+            ? enrichResolvedWithTrailBank(resolvedRaw, trailBankByNivel)
+            : null
           const cardTrailsLoading =
             trailsLoading && !resolved?.trail && formTrails.length === 0 && r.percentual_acerto == null
           const emptyReason =
@@ -397,6 +418,9 @@ export function StudentDetailPage() {
               totalQuestions={r.total_questions ?? null}
               trail={resolved?.trail ?? null}
               trailTitle={resolved?.displayTitle}
+              trailProfessorPdfUrl={resolved?.pdfUrl}
+              trailStudentPdfUrl={resolved?.studentPdfUrl}
+              enableTrailPdfPreview
               percentRange={resolved?.percentRange ?? null}
               emptyReason={emptyReason}
               trailsLoading={cardTrailsLoading}

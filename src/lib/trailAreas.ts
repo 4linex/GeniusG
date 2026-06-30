@@ -97,6 +97,46 @@ export function validatePedagogicalLink(url: string): string | null {
   return null
 }
 
+export function getStudentTrailPdfUrl(
+  trail?: Pick<LearningTrail, 'pdf_url'> | null,
+  fallbackPdfUrl?: string | null,
+): string | null {
+  const fromTrail = trail?.pdf_url?.trim()
+  if (fromTrail) return fromTrail
+  const fallback = fallbackPdfUrl?.trim()
+  return fallback || null
+}
+
+export function getStudentTrailLinkUrl(
+  trail?: Pick<LearningTrail, 'link_url'> | null,
+  fallbackLinkUrl?: string | null,
+): string | null {
+  const fromTrail = trail?.link_url?.trim()
+  if (fromTrail) return fromTrail
+  const fallback = fallbackLinkUrl?.trim()
+  return fallback || null
+}
+
+export function getProfessorTrailPdfUrl(
+  trail?: Pick<LearningTrail, 'pedagogical_pdf_url' | 'pdf_url'> | null,
+  fallbackPdfUrl?: string | null,
+): string | null {
+  const fromTrail = trail?.pedagogical_pdf_url?.trim() || trail?.pdf_url?.trim()
+  if (fromTrail) return fromTrail
+  const fallback = fallbackPdfUrl?.trim()
+  return fallback || null
+}
+
+export function getProfessorTrailLinkUrl(
+  trail?: Pick<LearningTrail, 'pedagogical_link_url' | 'link_url'> | null,
+  fallbackLinkUrl?: string | null,
+): string | null {
+  const fromTrail = trail?.pedagogical_link_url?.trim() || trail?.link_url?.trim()
+  if (fromTrail) return fromTrail
+  const fallback = fallbackLinkUrl?.trim()
+  return fallback || null
+}
+
 export function hasPedagogicalContent(trail: LearningTrail): boolean {
   return Boolean(
     trail.pedagogical_content?.trim()

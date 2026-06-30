@@ -151,7 +151,14 @@ export function buildErrorDescriptors(saeb: SkillBreakdownRow[]): RecoveryReport
 }
 
 export async function buildTrailRanking(
-  responses: Array<{ id: string; student_email: string }>,
+  responses: Array<{
+    id: string
+    student_email: string
+    form_id?: string
+    percentual_acerto?: number | null
+    correct_answers?: number | null
+    total_questions?: number | null
+  }>,
 ): Promise<RecoveryReportTrailRanking[]> {
   const rows = await loadTrailDistribution(responses)
   return rows
