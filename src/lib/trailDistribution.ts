@@ -1,6 +1,17 @@
+import { formatPercentRange, type FormTrailMatch } from '@/lib/formTrails'
+import type { RawAnswerRow } from '@/lib/reportAnalytics'
+import {
+  TRAIL_TIER_LABELS,
+  type TrailTier,
+} from '@/lib/trailRecommendation'
+import {
+  buildResponseTrailInput,
+  loadFormTrailsByFormIds,
+  resolveTrailFromFormTrails,
+} from '@/lib/studentResponseTrail'
 import { supabase } from '@/lib/supabase'
 import { fetchAllInBatches } from '@/lib/supabaseBatch'
-import { formatPercentRange } from '@/lib/formTrails'
+import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
 
 export interface TrailDistributionRow {
   key: string
@@ -10,93 +21,114 @@ export interface TrailDistributionRow {
   responseCount: number
 }
 
-type FormTrailSnapshot = {
+export interface TrailDistributionResponse {
   id: string
-  title?: string | null
-  min_percent: number
-  max_percent: number
-  learning_trail?: { title?: string | null } | { title?: string | null }[] | null
+  student_email: string
+  form_id?: string
+  percentual_acerto?: number | null
+  correct_answers?: number | null
+  total_questions?: number | null
 }
 
-type AssignmentRow = {
-  response_id: string
-  form_trail?: FormTrailSnapshot | FormTrailSnapshot[] | null
+const TIER_PERCENT_RANGE: Record<TrailTier, string> = {
+  1: formatPercentRange(0, 49),
+  2: formatPercentRange(50, 74),
+  3: formatPercentRange(75, 100),
 }
 
-function normalizeFormTrail(
-  raw: FormTrailSnapshot | FormTrailSnapshot[] | null | undefined,
-): FormTrailSnapshot | null {
-  if (!raw) return null
-  return Array.isArray(raw) ? raw[0] ?? null : raw
+type TrailBucket = {
+  title: string
+  percentRange: string
+  emails: Set<string>
+  responses: number
 }
 
-function trailTitle(formTrail: FormTrailSnapshot): string {
-  const bank = formTrail.learning_trail
-  const bankTitle = Array.isArray(bank) ? bank[0]?.title : bank?.title
-  return bankTitle || formTrail.title || 'Trilha de aprendizagem'
+function tierPercentRange(tier: TrailTier): string {
+  return TIER_PERCENT_RANGE[tier]
 }
 
-export async function loadTrailDistribution(
-  responses: Array<{ id: string; student_email: string }>,
-): Promise<TrailDistributionRow[]> {
+async function enrichResponses(
+  responses: TrailDistributionResponse[],
+): Promise<TrailDistributionResponse[]> {
+  const missing = responses.filter((r) => !r.form_id)
+  if (missing.length === 0) return responses
+
+  const byId = new Map(responses.map((r) => [r.id, { ...r }]))
+
+  await fetchAllInBatches(
+    missing.map((r) => r.id),
+    async (chunk) => {
+      const { data, error } = await supabase
+        .from('form_responses')
+        .select('id, form_id, percentual_acerto, correct_answers, total_questions, student_email')
+        .in('id', chunk)
+
+      if (error) throw error
+
+      for (const row of data || []) {
+        const current = byId.get(row.id)
+        if (!current) continue
+        byId.set(row.id, {
+          ...current,
+          form_id: row.form_id,
+          student_email: current.student_email || row.student_email,
+          percentual_acerto: row.percentual_acerto,
+          correct_answers: row.correct_answers,
+          total_questions: row.total_questions,
+        })
+      }
+      return []
+    },
+  )
+
+  return [...byId.values()]
+}
+
+export function buildTrailDistributionSync(
+  responses: TrailDistributionResponse[],
+  formTrailsByFormId: Record<string, FormTrailMatch[]>,
+  answers: RawAnswerRow[] = [],
+): TrailDistributionRow[] {
   if (responses.length === 0) return []
 
-  const emailByResponse = new Map(responses.map((r) => [r.id, r.student_email]))
-  const responseIds = responses.map((r) => r.id)
+  const byTrail = new Map<string, TrailBucket>()
+  let withoutTrailEmails = new Set<string>()
+  let withoutTrailResponses = 0
 
-  const assignments = await fetchAllInBatches(responseIds, async (chunk) => {
-    const { data, error } = await supabase
-      .from('student_trail_assignments')
-      .select(`
-        response_id,
-        form_trail:form_trails(
-          id,
-          title,
-          min_percent,
-          max_percent,
-          learning_trail:learning_trails(title)
-        )
-      `)
-      .in('response_id', chunk)
+  for (const response of responses) {
+    if (!response.form_id || response.percentual_acerto == null) {
+      withoutTrailEmails.add(response.student_email)
+      withoutTrailResponses++
+      continue
+    }
 
-    if (error) throw error
-    return (data || []) as unknown as AssignmentRow[]
-  })
+    const formTrails = formTrailsByFormId[response.form_id] ?? []
+    const resolved = resolveTrailFromFormTrails(
+      buildResponseTrailInput(response, answers),
+      formTrails,
+    )
 
-  const byTrail = new Map<
-    string,
-    { title: string; percentRange: string; emails: Set<string>; responses: number }
-  >()
+    if (!resolved?.diagnosis) {
+      withoutTrailEmails.add(response.student_email)
+      withoutTrailResponses++
+      continue
+    }
 
-  for (const assignment of assignments) {
-    const formTrail = normalizeFormTrail(assignment.form_trail)
-    if (!formTrail) continue
+    const tier = resolved.trailTier ?? resolved.diagnosis.trailTier
+    const key = `tier-${tier}`
+    const title = TRAIL_TIER_LABELS[tier]
+    const percentRange = tierPercentRange(tier)
 
-    const entry = byTrail.get(formTrail.id) || {
-      title: trailTitle(formTrail),
-      percentRange: formatPercentRange(
-        Number(formTrail.min_percent),
-        Number(formTrail.max_percent),
-      ),
+    const entry = byTrail.get(key) || {
+      title,
+      percentRange,
       emails: new Set<string>(),
       responses: 0,
     }
 
-    const email = emailByResponse.get(assignment.response_id)
-    if (email) entry.emails.add(email)
+    entry.emails.add(response.student_email)
     entry.responses++
-    byTrail.set(formTrail.id, entry)
-  }
-
-  const assignedResponseIds = new Set(assignments.map((a) => a.response_id))
-  const withoutTrailEmails = new Set<string>()
-  let withoutTrailResponses = 0
-
-  for (const response of responses) {
-    if (!assignedResponseIds.has(response.id)) {
-      withoutTrailEmails.add(response.student_email)
-      withoutTrailResponses++
-    }
+    byTrail.set(key, entry)
   }
 
   const rows: TrailDistributionRow[] = [...byTrail.entries()]
@@ -107,7 +139,11 @@ export async function loadTrailDistribution(
       studentCount: value.emails.size,
       responseCount: value.responses,
     }))
-    .sort((a, b) => b.studentCount - a.studentCount)
+    .sort((a, b) => {
+      const tierA = a.key.startsWith('tier-') ? Number(a.key.slice(5)) : 99
+      const tierB = b.key.startsWith('tier-') ? Number(b.key.slice(5)) : 99
+      return tierA - tierB
+    })
 
   if (withoutTrailResponses > 0) {
     rows.push({
@@ -120,4 +156,24 @@ export async function loadTrailDistribution(
   }
 
   return rows
+}
+
+export async function loadTrailDistribution(
+  responses: TrailDistributionResponse[],
+  options?: {
+    answers?: RawAnswerRow[]
+    formTrailsByFormId?: Record<string, FormTrailMatch[]>
+  },
+): Promise<TrailDistributionRow[]> {
+  if (responses.length === 0) return []
+
+  const enriched = await enrichResponses(responses)
+  const formIds = [...new Set(enriched.map((r) => r.form_id).filter(Boolean))] as string[]
+
+  const [formTrailsByFormId, answers] = await Promise.all([
+    options?.formTrailsByFormId ?? loadFormTrailsByFormIds(formIds),
+    options?.answers ?? fetchAnswersByResponseIds(enriched.map((r) => r.id)),
+  ])
+
+  return buildTrailDistributionSync(enriched, formTrailsByFormId, answers)
 }

@@ -13,7 +13,7 @@ export function StudentTrailPreview({ trail, accent }: StudentTrailPreviewProps)
       <p className="text-xs uppercase tracking-wider text-slate-500 mb-4">
         Pré-visualização — visão do aluno após responder o formulário
       </p>
-      <StudentTrailResult trail={trailToStudentView(trail)} accent={accent} />
+      <StudentTrailResult trail={trailToStudentView(trail)} accent={accent} recommended />
     </div>
   )
 }

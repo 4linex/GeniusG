@@ -3,7 +3,7 @@ import {
   formatPercentRange,
   type FormTrailMatch,
 } from '@/lib/formTrails'
-import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
+import { PROFESSOR_TRAIL_COLUMNS, getProfessorTrailPdfUrl, getStudentTrailPdfUrl } from '@/lib/trailAreas'
 import {
   recommendFormTrail,
   buildResponseTrailContext,
@@ -20,7 +20,7 @@ const BASIC_LEARNING_TRAIL_COLUMNS =
   'id, title, description, pdf_url, link_url, content' as const
 
 const FORM_TRAILS_BASE_SELECT =
-  'id, form_id, min_percent, max_percent, title, learning_trail_id' as const
+  'id, form_id, min_percent, max_percent, title, pdf_url, learning_trail_id' as const
 
 export function pickNestedOne<T>(value: T | T[] | null | undefined): T | null {
   if (value == null) return null
@@ -31,6 +31,8 @@ export interface ResolvedStudentTrail {
   trail: LearningTrail | null
   displayTitle: string
   percentRange: string | null
+  pdfUrl?: string | null
+  studentPdfUrl?: string | null
   diagnosis?: TrailDiagnosis
   trailTier?: TrailTier
   classificationLabel?: string
@@ -69,6 +71,7 @@ type FormTrailEmbed = {
   min_percent: number
   max_percent: number
   title?: string | null
+  pdf_url?: string | null
   learning_trail?: LearningTrail | LearningTrail[] | null
 }
 
@@ -94,6 +97,8 @@ function trailFromFormTrailEmbed(formTrail: FormTrailEmbed): ResolvedStudentTrai
   return {
     trail: learningTrail,
     displayTitle,
+    pdfUrl: getProfessorTrailPdfUrl(learningTrail, formTrail.pdf_url),
+    studentPdfUrl: getStudentTrailPdfUrl(learningTrail, formTrail.pdf_url),
     percentRange:
       formTrail.min_percent != null && formTrail.max_percent != null
         ? formatPercentRange(Number(formTrail.min_percent), Number(formTrail.max_percent))
@@ -105,6 +110,8 @@ function trailFromLegacyLearningTrail(learningTrail: LearningTrail): ResolvedStu
   return {
     trail: learningTrail,
     displayTitle: learningTrail.title?.trim() || 'Trilha de recomposição',
+    pdfUrl: getProfessorTrailPdfUrl(learningTrail),
+    studentPdfUrl: getStudentTrailPdfUrl(learningTrail),
     percentRange: null,
   }
 }
@@ -167,6 +174,8 @@ function resolvedFromDiagnosis(
       trail: learningTrail,
       displayTitle:
         learningTrail?.title || matched.title?.trim() || TRAIL_TIER_LABELS[diagnosis.trailTier],
+      pdfUrl: getProfessorTrailPdfUrl(learningTrail, matched.pdf_url),
+      studentPdfUrl: getStudentTrailPdfUrl(learningTrail, matched.pdf_url),
       percentRange: formatPercentRange(
         Number(matched.min_percent),
         Number(matched.max_percent),
@@ -269,6 +278,7 @@ export async function loadFormTrailsByFormIds(
     min_percent: number
     max_percent: number
     title?: string | null
+    pdf_url?: string | null
     learning_trail_id?: string | null
   }
 
@@ -293,6 +303,7 @@ export async function loadFormTrailsByFormIds(
       title: learningTrail?.title || row.title || 'Trilha de recomposição',
       min_percent: Number(row.min_percent),
       max_percent: Number(row.max_percent),
+      pdf_url: row.pdf_url ?? learningTrail?.pedagogical_pdf_url ?? learningTrail?.pdf_url ?? null,
       learning_trail: learningTrail,
     })
   }

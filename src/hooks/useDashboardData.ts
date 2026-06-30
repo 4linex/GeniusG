@@ -122,7 +122,9 @@ export function useDashboardData(
   contextFilters: DashboardContextFilters = EMPTY_DASHBOARD_CONTEXT_FILTERS,
 ) {
   const cacheKey =
-    userId && role ? dashboardScopeCacheKey(userId, role, contextFilters, profile) : null
+    userId && role
+      ? `${dashboardScopeCacheKey(userId, role, contextFilters, profile)}:trail-v3`
+      : null
   const cached = cacheKey ? dashboardCache.get(cacheKey) : undefined
 
   const [stats, setStats] = useState<DashboardStats>(cached?.stats ?? emptyStats)
@@ -154,7 +156,7 @@ export function useDashboardData(
   const fetchData = useCallback(async () => {
     if (!userId || !role) return
 
-    const key = dashboardScopeCacheKey(userId, role, contextFilters, profile)
+    const key = `${dashboardScopeCacheKey(userId, role, contextFilters, profile)}:trail-v3`
     const hadData = dashboardCache.has(key)
     if (!hadData) setLoading(true)
     setError(null)
@@ -221,7 +223,7 @@ export function useDashboardData(
       let responsesQuery = supabase
         .from('form_responses')
         .select(
-          'id, form_id, form_link_id, student_email, student_name, percentual_acerto, theta, nivel_proficiencia, completed_at, municipio, school_name, turma',
+          'id, form_id, form_link_id, student_email, student_name, percentual_acerto, theta, nivel_proficiencia, correct_answers, total_questions, completed_at, municipio, school_name, turma',
         )
 
       if (professorLinkIds) {
@@ -328,9 +330,10 @@ export function useDashboardData(
       const bySaeb = new Map<string, { total: number; correct: number }>()
       const byBloom = new Map<string, { total: number; correct: number }>()
       const responseIds = responseList.map((r) => r.id)
+      let answerRows: Awaited<ReturnType<typeof fetchAnswersByResponseIds>> = []
 
       if (responseIds.length > 0) {
-        const answerRows = await fetchAnswersByResponseIds(responseIds)
+        answerRows = await fetchAnswersByResponseIds(responseIds)
 
         for (const a of answerRows) {
           if (a.habilidade_bncc !== EMPTY_SKILL_LABELS.bncc) {
@@ -469,7 +472,15 @@ export function useDashboardData(
               : ['00000000-0000-0000-0000-000000000000'],
         ),
         loadTrailDistribution(
-          responseList.map((r) => ({ id: r.id, student_email: r.student_email })),
+          responseList.map((r) => ({
+            id: r.id,
+            student_email: r.student_email,
+            form_id: r.form_id,
+            percentual_acerto: r.percentual_acerto,
+            correct_answers: r.correct_answers,
+            total_questions: r.total_questions,
+          })),
+          { answers: answerRows },
         ),
       ])
 
@@ -513,7 +524,7 @@ export function useDashboardData(
       return
     }
 
-    const key = dashboardScopeCacheKey(userId, role, contextFilters, profile)
+    const key = `${dashboardScopeCacheKey(userId, role, contextFilters, profile)}:trail-v3`
     const hit = dashboardCache.get(key)
     if (hit) {
       applySnapshot(hit)

@@ -943,7 +943,14 @@ async function enrichReportSections(
     ...saeb.filter((s) => s.percentage < 60).map((s) => s.label),
   ]
   const trailRanking = await buildTrailRanking(
-    responses.map((r) => ({ id: r.id, student_email: r.student_email })),
+    responses.map((r) => ({
+      id: r.id,
+      student_email: r.student_email,
+      form_id: r.form_id,
+      percentual_acerto: r.percentual_acerto,
+      correct_answers: r.correct_answers,
+      total_questions: r.total_questions,
+    })),
   ).catch(() => [] as Awaited<ReturnType<typeof buildTrailRanking>>)
 
   const evolutionSeries = buildEvolutionSeries(responses)
