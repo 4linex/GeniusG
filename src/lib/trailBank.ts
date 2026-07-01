@@ -14,7 +14,10 @@ const TIER_TO_NIVEL: Record<TrailTier, NivelProficiencia> = {
   3: 'avancado',
 }
 
-export async function loadLearningTrailsByNivel(): Promise<Map<NivelProficiencia, LearningTrail>> {
+let learningTrailsByNivelCache: Map<NivelProficiencia, LearningTrail> | null = null
+let learningTrailsByNivelPromise: Promise<Map<NivelProficiencia, LearningTrail>> | null = null
+
+async function fetchLearningTrailsByNivel(): Promise<Map<NivelProficiencia, LearningTrail>> {
   const { data, error } = await supabase
     .from('learning_trails')
     .select(PROFESSOR_TRAIL_COLUMNS)
@@ -33,6 +36,17 @@ export async function loadLearningTrailsByNivel(): Promise<Map<NivelProficiencia
     }
   }
   return map
+}
+
+export async function loadLearningTrailsByNivel(): Promise<Map<NivelProficiencia, LearningTrail>> {
+  if (learningTrailsByNivelCache) return learningTrailsByNivelCache
+  if (!learningTrailsByNivelPromise) {
+    learningTrailsByNivelPromise = fetchLearningTrailsByNivel().then((map) => {
+      learningTrailsByNivelCache = map
+      return map
+    })
+  }
+  return learningTrailsByNivelPromise
 }
 
 export function enrichResolvedWithTrailBank(

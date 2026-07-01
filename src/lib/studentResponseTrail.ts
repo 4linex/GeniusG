@@ -14,7 +14,7 @@ import {
 } from '@/lib/trailRecommendation'
 import type { RawAnswerRow } from '@/lib/reportAnalytics'
 import { supabase } from '@/lib/supabase'
-import type { LearningTrail } from '@/types/database'
+import type { FormTrail, LearningTrail } from '@/types/database'
 
 const BASIC_LEARNING_TRAIL_COLUMNS =
   'id, title, description, pdf_url, link_url, content' as const
@@ -308,5 +308,61 @@ export async function loadFormTrailsByFormIds(
     })
   }
 
+  return map
+}
+
+export type StoredTrailAssignment = {
+  form_trail: (Pick<FormTrail, 'min_percent' | 'max_percent' | 'title'> & {
+    learning_trail?: LearningTrail | null
+  }) | null
+}
+
+export async function loadTrailAssignmentsByResponseIds(
+  responseIds: string[],
+): Promise<Record<string, StoredTrailAssignment | null>> {
+  if (responseIds.length === 0) return {}
+
+  const { data, error } = await supabase
+    .from('student_trail_assignments')
+    .select(
+      `response_id,
+      form_trail:form_trails(
+        min_percent,
+        max_percent,
+        title,
+        learning_trail:learning_trails(${PROFESSOR_TRAIL_COLUMNS})
+      )`,
+    )
+    .in('response_id', responseIds)
+
+  if (error) {
+    console.warn('Erro ao carregar atribuições de trilha:', error.message)
+    return {}
+  }
+
+  const map: Record<string, StoredTrailAssignment | null> = {}
+  for (const row of data ?? []) {
+    const responseId = row.response_id as string
+    const formTrail = pickNestedOne(
+      row.form_trail as
+        | (Pick<FormTrail, 'min_percent' | 'max_percent' | 'title'> & {
+            learning_trail?: LearningTrail | LearningTrail[] | null
+          })
+        | (Pick<FormTrail, 'min_percent' | 'max_percent' | 'title'> & {
+            learning_trail?: LearningTrail | LearningTrail[] | null
+          })[]
+        | null,
+    )
+    if (!formTrail) {
+      map[responseId] = null
+      continue
+    }
+    map[responseId] = {
+      form_trail: {
+        ...formTrail,
+        learning_trail: pickNestedOne(formTrail.learning_trail),
+      },
+    }
+  }
   return map
 }

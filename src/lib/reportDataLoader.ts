@@ -15,10 +15,27 @@ import {
 import type { RawAnswerRow, ResponseWithForm } from '@/lib/reportAnalytics'
 import type { Profile } from '@/types/database'
 
+const NESTED_ANSWERS_SELECT =
+  'response_answers(is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom, point_value, nivel_dificuldade))'
+
 const RESPONSES_SELECT = `
-  *,
+  id,
+  form_id,
+  form_link_id,
+  student_name,
+  student_email,
+  score,
+  percentual_acerto,
+  theta,
+  nivel_proficiencia,
+  correct_answers,
+  total_questions,
+  completed_at,
+  municipio,
+  school_name,
+  turma,
   form:forms(id, title, turma),
-  response_answers(is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom, point_value, nivel_dificuldade))
+  ${NESTED_ANSWERS_SELECT}
 `
 
 export interface ReportDataSnapshot {
@@ -29,7 +46,7 @@ export interface ReportDataSnapshot {
 let cachedSnapshot: ReportDataSnapshot | null = null
 let cacheKey: string | null = null
 
-const REPORT_DATA_CACHE_VERSION = 6
+const REPORT_DATA_CACHE_VERSION = 7
 
 function reportCacheKey(
   userId: string,
@@ -92,7 +109,7 @@ export async function loadReportData(
   const { data: respData, error: respError } = await query
   if (respError) throw respError
 
-  let rawList = (respData || []) as ResponseWithForm[]
+  let rawList = (respData || []) as unknown as ResponseWithForm[]
 
   if (role === 'professor') {
     rawList = applyProfessorProfileScope(rawList, profile)

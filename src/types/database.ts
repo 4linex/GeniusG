@@ -70,6 +70,7 @@ export interface Question {
   tri_calibrated_at?: string | null
   tri_response_count?: number | null
   point_value?: number
+  archived_at?: string | null
   created_by?: string | null
   created_at: string
   updated_at: string

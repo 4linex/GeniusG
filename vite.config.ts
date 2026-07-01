@@ -10,4 +10,17 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('recharts') || id.includes('d3-')) return 'charts'
+            if (id.includes('@supabase')) return 'supabase'
+            if (id.includes('@tiptap') || id.includes('prosemirror')) return 'editor'
+          }
+        },
+      },
+    },
+  },
 })

@@ -16,6 +16,7 @@ import {
   isKnownComponent,
   slugToComponent,
 } from '@/lib/questionComponents'
+import { deleteOrArchiveQuestion, questionDeleteSuccessMessage } from '@/lib/questionDelete'
 import { applyComponentQuestionsFilters } from '@/lib/questionFilters'
 import { type Question, type QuestionAlternative } from '@/types/database'
 import type { QuestionType } from '@/types/questionTypes'
@@ -37,6 +38,7 @@ export function ComponentQuestionsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Question | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [previewQuestion, setPreviewQuestion] = useState<Question | null>(null)
   const [previewAlternatives, setPreviewAlternatives] = useState<QuestionAlternative[]>([])
 
@@ -51,6 +53,7 @@ export function ComponentQuestionsPage() {
         'id, title, enunciado, codigo_item, ano_serie, componente_curricular, nivel_dificuldade, question_type, image_url, point_value, created_at, is_form_exclusive, created_by, subtitle, youtube_url, conteudo_programatico, descritor_saeb, habilidade_bncc, nivel_bloom, tempo_medio_resolucao, tipo_texto_base, fonte, creator_notes',
       )
       .eq('componente_curricular', componentLabel)
+      .is('archived_at', null)
       .order('created_at', { ascending: false })
 
     if (!loadError && data) setQuestions(data as Question[])
@@ -78,14 +81,16 @@ export function ComponentQuestionsPage() {
     if (!deleteTarget) return
     setDeleting(true)
     setError('')
-    const { error: deleteError } = await supabase.from('questions').delete().eq('id', deleteTarget.id)
-    if (deleteError) {
-      setError(deleteError.message)
+    setSuccess('')
+    const result = await deleteOrArchiveQuestion(deleteTarget.id)
+    if (!result.ok) {
+      setError(result.message)
       setDeleting(false)
       return
     }
     setDeleteTarget(null)
     setDeleting(false)
+    setSuccess(questionDeleteSuccessMessage(result))
     loadQuestions()
   }
 
@@ -149,6 +154,12 @@ export function ComponentQuestionsPage() {
       {error && (
         <div className="mb-4 rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400">
           {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="mb-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 text-sm text-emerald-300">
+          {success}
         </div>
       )}
 
@@ -216,7 +227,7 @@ export function ComponentQuestionsPage() {
       <ConfirmDeleteModal
         open={Boolean(deleteTarget)}
         title="Excluir questão"
-        description="Esta ação remove permanentemente a questão do sistema."
+        description="Se a questão nunca foi respondida, ela será removida permanentemente. Se já houver respostas de alunos, ela será arquivada (some do banco, mas o histórico das avaliações é preservado)."
         itemName={deleteTarget?.title}
         loading={deleting}
         onConfirm={handleConfirmDelete}

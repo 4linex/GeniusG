@@ -88,6 +88,7 @@ export function DashboardPage() {
   const [reportPickerOpen, setReportPickerOpen] = useState(false)
   const [reportData, setReportData] = useState<RecoveryReportData | null>(null)
   const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
 
   useRefreshOnFocus(refetch, Boolean(user && profile))
 
@@ -96,6 +97,8 @@ export function DashboardPage() {
     setReportPickerOpen(false)
     setReportOpen(true)
     setReportLoading(true)
+    setReportError(null)
+    setReportData(null)
     try {
       const mergedScope: ReportFilters = {
         ...scope,
@@ -103,7 +106,17 @@ export function DashboardPage() {
         school_name: scope.school_name ?? contextFilters.school_name,
         turma: scope.turma ?? contextFilters.turma,
       }
-      setReportData(await buildDashboardRecoveryReport(user.id, profile.role, mergedScope, profile))
+      const data = await buildDashboardRecoveryReport(user.id, profile.role, mergedScope, profile)
+      if (!data) {
+        setReportError('Nenhum dado encontrado para o recorte e período selecionados.')
+      } else {
+        setReportData(data)
+      }
+    } catch (err) {
+      console.error('Erro ao gerar relatório:', err)
+      setReportError(
+        err instanceof Error ? err.message : 'Não foi possível gerar o relatório. Tente novamente.',
+      )
     } finally {
       setReportLoading(false)
     }
@@ -455,6 +468,7 @@ export function DashboardPage() {
         onClose={() => setReportOpen(false)}
         data={reportData}
         loading={reportLoading}
+        error={reportError}
       />
     </div>
   )
