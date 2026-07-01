@@ -21,11 +21,16 @@ export function RecoveryReportModal({ open, onClose, data, loading, error }: Rec
   useEffect(() => {
     if (!open) return
     setExportError(null)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKey)
+    }
   }, [open, onClose])
 
   const handleExport = async () => {
@@ -49,9 +54,10 @@ export function RecoveryReportModal({ open, onClose, data, loading, error }: Rec
   if (!open) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-      <div className="relative flex flex-col w-full max-w-4xl max-h-[90vh] rounded-2xl border border-white/10 bg-slate-900 shadow-2xl">
-        <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-white/10">
+    <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/70 overscroll-contain">
+      <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+        <div className="relative flex w-full max-w-4xl max-h-[min(90dvh,calc(100vh-2rem))] flex-col rounded-2xl border border-white/10 bg-slate-900 shadow-2xl">
+          <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
           <div>
             <h2 className="text-lg font-semibold text-white">Prévia do relatório</h2>
             <p className="text-sm text-slate-400">
@@ -93,19 +99,19 @@ export function RecoveryReportModal({ open, onClose, data, loading, error }: Rec
               <X size={20} />
             </button>
           </div>
-        </div>
-        {exportError && (
-          <p className="px-5 py-2 text-sm text-red-400 bg-red-500/10 border-b border-red-500/20">
-            {exportError}
-          </p>
-        )}
-        {!loading && error && !data && (
-          <p className="px-5 py-2 text-sm text-red-400 bg-red-500/10 border-b border-red-500/20">
-            {error}
-          </p>
-        )}
+          </div>
+          {exportError && (
+            <p className="shrink-0 px-5 py-2 text-sm text-red-400 bg-red-500/10 border-b border-red-500/20">
+              {exportError}
+            </p>
+          )}
+          {!loading && error && !data && (
+            <p className="shrink-0 px-5 py-2 text-sm text-red-400 bg-red-500/10 border-b border-red-500/20">
+              {error}
+            </p>
+          )}
 
-        <div className="overflow-auto flex-1 p-4 bg-slate-800/50">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-800/50 p-4 scrollbar-app">
           {loading ? (
             <div className="flex justify-center py-16">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-500/30 border-t-primary-500" />
@@ -119,6 +125,7 @@ export function RecoveryReportModal({ open, onClose, data, loading, error }: Rec
               {error || 'Não foi possível gerar o relatório.'}
             </p>
           )}
+          </div>
         </div>
       </div>
     </div>,

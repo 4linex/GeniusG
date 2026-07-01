@@ -18,6 +18,7 @@ export function QuestionsPage() {
     const { data, error: loadError } = await supabase
       .from('questions')
       .select('id, componente_curricular, nivel_dificuldade, point_value, created_at')
+      .is('archived_at', null)
       .order('created_at', { ascending: false })
 
     if (!loadError && data) setQuestions(data as Question[])

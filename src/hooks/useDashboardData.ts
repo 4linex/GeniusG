@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
+import { flattenNestedAnswers, type NestedResponseAnswer } from '@/lib/responseAnswers'
 import { loadTriByFormChart, type TriFormChartRow } from '@/lib/formAssessmentReport'
 import { loadTrailDistribution, type TrailDistributionRow } from '@/lib/trailDistribution'
 import {
@@ -223,7 +223,8 @@ export function useDashboardData(
       let responsesQuery = supabase
         .from('form_responses')
         .select(
-          'id, form_id, form_link_id, student_email, student_name, percentual_acerto, theta, nivel_proficiencia, correct_answers, total_questions, completed_at, municipio, school_name, turma',
+          `id, form_id, form_link_id, student_email, student_name, percentual_acerto, theta, nivel_proficiencia, correct_answers, total_questions, completed_at, municipio, school_name, turma,
+          response_answers(is_correct, question:questions(habilidade_bncc, descritor_saeb, nivel_bloom, point_value, nivel_dificuldade))`,
         )
 
       if (professorLinkIds) {
@@ -329,12 +330,11 @@ export function useDashboardData(
       const byBncc = new Map<string, { total: number; correct: number }>()
       const bySaeb = new Map<string, { total: number; correct: number }>()
       const byBloom = new Map<string, { total: number; correct: number }>()
-      const responseIds = responseList.map((r) => r.id)
-      let answerRows: Awaited<ReturnType<typeof fetchAnswersByResponseIds>> = []
+      const answerRows = flattenNestedAnswers(
+        responseList as unknown as Array<{ id: string; response_answers?: NestedResponseAnswer[] | null }>,
+      )
 
-      if (responseIds.length > 0) {
-        answerRows = await fetchAnswersByResponseIds(responseIds)
-
+      if (answerRows.length > 0) {
         for (const a of answerRows) {
           if (a.habilidade_bncc !== EMPTY_SKILL_LABELS.bncc) {
             const hab = byBncc.get(a.habilidade_bncc) || { total: 0, correct: 0 }

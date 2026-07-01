@@ -11,6 +11,9 @@ import {
 } from '@/lib/profileLocations'
 import type { Profile, School, SchoolClass } from '@/types/database'
 
+const PROFESSOR_LINK_IDS_TTL_MS = 5 * 60 * 1000
+const professorLinkIdsCache = new Map<string, { ids: string[]; at: number }>()
+
 export interface DashboardContextFilters {
   municipio?: string
   school_name?: string
@@ -153,6 +156,12 @@ export async function getProfessorLinkIds(
   professorId: string,
   profile?: ProfileLocationFields | null,
 ): Promise<string[]> {
+  const cacheKey = `${professorId}:${profileLocationCacheKey(profile)}`
+  const cached = professorLinkIdsCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < PROFESSOR_LINK_IDS_TTL_MS) {
+    return cached.ids
+  }
+
   const { data, error } = await supabase
     .from('form_links')
     .select('id, municipio, school_name, turma')
@@ -162,7 +171,9 @@ export async function getProfessorLinkIds(
 
   let scoped = applyProfessorProfileScope(data || [], profile)
   scoped = applyProfileTurmaScope(scoped, profile?.turmas)
-  return scoped.map((l) => l.id)
+  const ids = scoped.map((l) => l.id)
+  professorLinkIdsCache.set(cacheKey, { ids, at: Date.now() })
+  return ids
 }
 
 export async function loadDashboardFilterOptions(

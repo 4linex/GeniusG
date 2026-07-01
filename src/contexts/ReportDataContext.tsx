@@ -3,9 +3,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import {
@@ -14,6 +16,8 @@ import {
   setReportDataCache,
   type ReportDataSnapshot,
 } from '@/lib/reportDataLoader'
+import { profileLocationCacheKey } from '@/lib/profileLocations'
+import { isReportDataRoute } from '@/lib/reportRoutes'
 import type { RawAnswerRow, ResponseWithForm } from '@/lib/reportAnalytics'
 
 interface ReportDataContextValue {
@@ -28,12 +32,15 @@ const ReportDataContext = createContext<ReportDataContextValue | undefined>(unde
 
 export function ReportDataProvider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth()
+  const location = useLocation()
+  const enabled = isReportDataRoute(location.pathname)
+  const profileScopeKey = profile ? profileLocationCacheKey(profile) : ''
   const cached =
     user && profile ? getReportDataCache(user.id, profile.role, profile) : null
 
   const [responses, setResponses] = useState<ResponseWithForm[]>(cached?.responses ?? [])
   const [answers, setAnswers] = useState<RawAnswerRow[]>(cached?.answers ?? [])
-  const [loading, setLoading] = useState(!cached)
+  const [loading, setLoading] = useState(enabled && !cached)
   const [error, setError] = useState<string | null>(null)
 
   const applySnapshot = useCallback((snapshot: ReportDataSnapshot) => {
@@ -42,7 +49,7 @@ export function ReportDataProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refetch = useCallback(async () => {
-    if (!user || !profile) return
+    if (!enabled || !user || !profile) return
 
     const hadData = Boolean(getReportDataCache(user.id, profile.role, profile))
     if (!hadData) setLoading(true)
@@ -61,9 +68,14 @@ export function ReportDataProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [user, profile, applySnapshot])
+  }, [enabled, user, profile, applySnapshot])
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false)
+      return
+    }
+
     if (!user || !profile) {
       setLoading(false)
       return
@@ -99,15 +111,22 @@ export function ReportDataProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [user, profile, applySnapshot])
+  }, [enabled, user?.id, profile?.role, profileScopeKey, applySnapshot])
 
-  useRefreshOnFocus(refetch, Boolean(user && profile))
+  useRefreshOnFocus(refetch, enabled && Boolean(user && profile))
 
-  return (
-    <ReportDataContext.Provider value={{ responses, answers, loading, error, refetch }}>
-      {children}
-    </ReportDataContext.Provider>
+  const value = useMemo(
+    () => ({
+      responses,
+      answers,
+      loading: enabled ? loading : false,
+      error,
+      refetch,
+    }),
+    [responses, answers, loading, error, refetch, enabled],
   )
+
+  return <ReportDataContext.Provider value={value}>{children}</ReportDataContext.Provider>
 }
 
 export function useReportDataContext() {

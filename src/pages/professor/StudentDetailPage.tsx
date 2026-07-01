@@ -1,7 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, FileBarChart } from 'lucide-react'
-import { useScopedResponses } from '@/hooks/useScopedResponses'
 import { useReportDataContext } from '@/contexts/ReportDataContext'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -22,20 +21,16 @@ import {
   loadFormTrailsByFormIds,
   buildResponseTrailInput,
   resolveStudentResponseTrail,
+  loadTrailAssignmentsByResponseIds,
+  type StoredTrailAssignment,
 } from '@/lib/studentResponseTrail'
-import { fetchAnswersByResponseIds } from '@/lib/responseAnswers'
 import { enrichResolvedWithTrailBank, loadLearningTrailsByNivel } from '@/lib/trailBank'
 import { StudentAnsweredFormCard } from '@/components/trails/StudentAnsweredFormCard'
-import { PROFESSOR_TRAIL_COLUMNS } from '@/lib/trailAreas'
-import type { FormResponse, FormTrail, LearningTrail, NivelProficiencia } from '@/types/database'
+import type { FormResponse, LearningTrail, NivelProficiencia } from '@/types/database'
 
 interface ResponseWithTrail extends FormResponse {
-  form?: { title: string }
-  trail_assignment?: {
-    form_trail: Pick<FormTrail, 'min_percent' | 'max_percent'> & {
-      learning_trail?: LearningTrail | null
-    } | null
-  } | null
+  form?: { title: string } | null
+  trail_assignment?: StoredTrailAssignment | null
 }
 
 export function StudentDetailPage() {
@@ -54,42 +49,66 @@ export function StudentDetailPage() {
   const [reportLoading, setReportLoading] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
 
-  const { responses: allResponses, loading } = useScopedResponses<ResponseWithTrail>(`
-    *,
-    form:forms(id, title),
-    trail_assignment:student_trail_assignments(
-      form_trail:form_trails(
-      min_percent,
-      max_percent,
-      title,
-      learning_trail:learning_trails(${PROFESSOR_TRAIL_COLUMNS})
-    )
-    )
-  `)
+  const {
+    responses: allResponses,
+    answers: contextAnswers,
+    loading: contextLoading,
+  } = useReportDataContext()
 
-  const responses = useMemo(
+  const baseResponses = useMemo(
     () =>
       allResponses.filter(
         (r) => r.student_email.trim().toLowerCase() === email.trim().toLowerCase(),
       ),
     [allResponses, email],
   )
+
+  const responseIdsKey = useMemo(
+    () => baseResponses.map((r) => r.id).sort().join(','),
+    [baseResponses],
+  )
+
+  const [trailByResponseId, setTrailByResponseId] = useState<
+    Record<string, StoredTrailAssignment | null>
+  >({})
+
+  useEffect(() => {
+    const ids = responseIdsKey ? responseIdsKey.split(',') : []
+    if (ids.length === 0) {
+      setTrailByResponseId({})
+      return
+    }
+
+    let cancelled = false
+    loadTrailAssignmentsByResponseIds(ids)
+      .then((map) => {
+        if (!cancelled) setTrailByResponseId(map)
+      })
+      .catch((err) => {
+        console.warn('Erro ao carregar trilhas atribuídas:', err)
+        if (!cancelled) setTrailByResponseId({})
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [responseIdsKey])
+
+  const responses = useMemo<ResponseWithTrail[]>(
+    () =>
+      baseResponses.map((r) => ({
+        ...r,
+        trail_assignment: trailByResponseId[r.id] ?? null,
+      })),
+    [baseResponses, trailByResponseId],
+  )
   const student = responses[0]
 
-  const { answers: contextAnswers } = useReportDataContext()
-  const [fetchedAnswers, setFetchedAnswers] = useState<typeof contextAnswers>([])
-  const answers = useMemo(() => {
-    if (fetchedAnswers.length === 0) return contextAnswers
-    const byKey = new Map<string, (typeof contextAnswers)[number]>()
-    for (const row of contextAnswers) {
-      byKey.set(`${row.response_id}:${row.habilidade_bncc}:${row.is_correct}`, row)
-    }
-    for (const row of fetchedAnswers) {
-      byKey.set(`${row.response_id}:${row.habilidade_bncc}:${row.is_correct}`, row)
-    }
-    return [...byKey.values()]
-  }, [contextAnswers, fetchedAnswers])
   const responseIds = useMemo(() => new Set(responses.map((r) => r.id)), [responses])
+  const answers = useMemo(
+    () => contextAnswers.filter((a) => responseIds.has(a.response_id)),
+    [contextAnswers, responseIds],
+  )
   const bnccSkills = useMemo(
     () => aggregateSkillsFromAnswers(answers, responseIds, 'bncc'),
     [answers, responseIds],
@@ -179,30 +198,6 @@ export function StudentDetailPage() {
     }
   }, [])
 
-  useEffect(() => {
-    const missingIds = responses
-      .map((r) => r.id)
-      .filter((id) => !contextAnswers.some((a) => a.response_id === id))
-
-    if (missingIds.length === 0) {
-      setFetchedAnswers([])
-      return
-    }
-
-    let cancelled = false
-    fetchAnswersByResponseIds(missingIds)
-      .then((rows) => {
-        if (!cancelled) setFetchedAnswers(rows)
-      })
-      .catch((err) => {
-        console.warn('Não foi possível carregar respostas por questão:', err)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [responses, contextAnswers])
-
   const preloadedTrails = useMemo(
     () => buildRecommendedTrailsFromPageResponses(responses, formTrailsByFormId, answers),
     [responses, formTrailsByFormId, answers],
@@ -261,7 +256,7 @@ export function StudentDetailPage() {
     }
   }
 
-  if (loading && allResponses.length === 0) {
+  if (contextLoading && allResponses.length === 0) {
     return (
       <div className="flex justify-center py-12">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-500/30 border-t-primary-500" />

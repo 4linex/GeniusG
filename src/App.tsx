@@ -4,7 +4,6 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { ProtectedRoute, PublicRoute } from '@/components/auth/ProtectedRoute'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import { LoginPage } from '@/pages/LoginPage'
-import { DashboardPage } from '@/pages/DashboardPage'
 import { FormAssessmentDetailPage } from '@/pages/dashboard/FormAssessmentDetailPage'
 import { FormStudentResponsePage } from '@/pages/dashboard/FormStudentResponsePage'
 import { QuestionsPage } from '@/pages/admin/QuestionsPage'
@@ -15,18 +14,33 @@ import { AdminTrailsPage } from '@/pages/admin/AdminTrailsPage'
 import { FormsHubPage } from '@/pages/forms/FormsHubPage'
 import { ComponentFormsPage } from '@/pages/forms/ComponentFormsPage'
 import { FormViewPage } from '@/pages/forms/FormViewPage'
-import { ResponsesPage } from '@/pages/professor/ResponsesPage'
-import { StudentDetailPage } from '@/pages/professor/StudentDetailPage'
 import { ReportsLayout } from '@/pages/professor/ReportsLayout'
-import { FormReportPage } from '@/pages/professor/FormReportPage'
-import { FormReportDetailPage } from '@/pages/professor/FormReportDetailPage'
-import { SkillsReportPage } from '@/pages/professor/SkillsReportPage'
 import { ProfessorTrailsPage } from '@/pages/professor/ProfessorTrailsPage'
 import { StudentFormAccessPage } from '@/pages/student/StudentFormAccessPage'
 import { StudentFormFillPage } from '@/pages/student/StudentFormFillPage'
 
+const DashboardPage = lazy(() =>
+  import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
+)
 const FormBuilderPage = lazy(() =>
   import('@/pages/forms/FormBuilderPage').then((m) => ({ default: m.FormBuilderPage })),
+)
+const ResponsesPage = lazy(() =>
+  import('@/pages/professor/ResponsesPage').then((m) => ({ default: m.ResponsesPage })),
+)
+const StudentDetailPage = lazy(() =>
+  import('@/pages/professor/StudentDetailPage').then((m) => ({ default: m.StudentDetailPage })),
+)
+const FormReportPage = lazy(() =>
+  import('@/pages/professor/FormReportPage').then((m) => ({ default: m.FormReportPage })),
+)
+const FormReportDetailPage = lazy(() =>
+  import('@/pages/professor/FormReportDetailPage').then((m) => ({
+    default: m.FormReportDetailPage,
+  })),
+)
+const SkillsReportPage = lazy(() =>
+  import('@/pages/professor/SkillsReportPage').then((m) => ({ default: m.SkillsReportPage })),
 )
 
 function PageLoader() {
@@ -37,11 +51,15 @@ function PageLoader() {
   )
 }
 
+function LazyPage({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<PageLoader />}>{children}</Suspense>
+}
+
 function LazyFormBuilder() {
   return (
-    <Suspense fallback={<PageLoader />}>
+    <LazyPage>
       <FormBuilderPage />
-    </Suspense>
+    </LazyPage>
   )
 }
 
@@ -67,7 +85,14 @@ export function AppRouter() {
           {/* Rotas autenticadas */}
           <Route element={<ProtectedRoute />}>
             <Route element={<DashboardLayout />}>
-              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route
+                path="/dashboard"
+                element={
+                  <LazyPage>
+                    <DashboardPage />
+                  </LazyPage>
+                }
+              />
               <Route path="/dashboard/avaliacoes/:formId" element={<FormAssessmentDetailPage />} />
               <Route
                 path="/dashboard/avaliacoes/:formId/resposta/:responseId"
@@ -93,13 +118,48 @@ export function AppRouter() {
               {/* Professor, Admin + Root */}
               <Route element={<ProtectedRoute allowedRoles={['professor', 'admin']} />}>
                 <Route path="/professor/trilhas" element={<ProfessorTrailsPage />} />
-                <Route path="/professor/relatorios/aluno/:email" element={<StudentDetailPage />} />
+                <Route
+                  path="/professor/relatorios/aluno/:email"
+                  element={
+                    <LazyPage>
+                      <StudentDetailPage />
+                    </LazyPage>
+                  }
+                />
                 <Route path="/professor/relatorios" element={<ReportsLayout />}>
                   <Route index element={<Navigate to="alunos" replace />} />
-                  <Route path="alunos" element={<ResponsesPage />} />
-                  <Route path="formulario" element={<FormReportPage />} />
-                  <Route path="formulario/:formId" element={<FormReportDetailPage />} />
-                  <Route path="habilidades" element={<SkillsReportPage />} />
+                  <Route
+                    path="alunos"
+                    element={
+                      <LazyPage>
+                        <ResponsesPage />
+                      </LazyPage>
+                    }
+                  />
+                  <Route
+                    path="formulario"
+                    element={
+                      <LazyPage>
+                        <FormReportPage />
+                      </LazyPage>
+                    }
+                  />
+                  <Route
+                    path="formulario/:formId"
+                    element={
+                      <LazyPage>
+                        <FormReportDetailPage />
+                      </LazyPage>
+                    }
+                  />
+                  <Route
+                    path="habilidades"
+                    element={
+                      <LazyPage>
+                        <SkillsReportPage />
+                      </LazyPage>
+                    }
+                  />
                 </Route>
                 <Route path="/professor/respostas" element={<Navigate to="/professor/relatorios/alunos" replace />} />
                 <Route path="/professor/respostas/aluno/:email" element={<RedirectLegacyStudentDetail />} />

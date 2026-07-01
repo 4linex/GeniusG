@@ -44,6 +44,7 @@ export async function loadBankQuestions() {
     .eq('is_form_exclusive', false)
     .eq('ano_serie', ANO_SERIE_MVP)
     .eq('componente_curricular', COMPONENTE_MVP)
+    .is('archived_at', null)
     .order('conteudo_programatico')
     .order('title')
 

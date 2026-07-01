@@ -107,11 +107,16 @@ export function DashboardReportPickerModal({
 
   useEffect(() => {
     if (!open) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKey)
+    }
   }, [open, onClose])
 
   const escolaOptions = useMemo(
@@ -173,23 +178,31 @@ export function DashboardReportPickerModal({
   const showTurma = reportType === 'turma'
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-      <div className="relative flex w-full max-w-lg flex-col rounded-2xl border border-white/10 bg-slate-900 shadow-2xl">
-        <div className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Gerar relatório</h2>
-            <p className="text-sm text-slate-400">Escolha o tipo e o período dos dados</p>
+    <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/70 overscroll-contain">
+      <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="dashboard-report-picker-title"
+          className="relative flex w-full max-w-lg max-h-[min(90dvh,calc(100vh-2rem))] flex-col rounded-2xl border border-white/10 bg-slate-900 shadow-2xl"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
+            <div>
+              <h2 id="dashboard-report-picker-title" className="text-lg font-semibold text-white">
+                Gerar relatório
+              </h2>
+              <p className="text-sm text-slate-400">Escolha o tipo e o período dos dados</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl p-2 text-slate-400 hover:bg-white/10 hover:text-white"
+            >
+              <X size={20} />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 hover:bg-white/10 hover:text-white"
-          >
-            <X size={20} />
-          </button>
-        </div>
 
-        <div className="space-y-5 overflow-auto p-5">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5 scrollbar-app">
           <div className="grid grid-cols-2 gap-2">
             {availableTypes.map((type) => {
               const Icon = type.icon
@@ -279,19 +292,20 @@ export function DashboardReportPickerModal({
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-4">
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleGenerate}
-            loading={generating}
-            disabled={!canGenerate()}
-          >
-            <FileBarChart size={16} />
-            Gerar relatório
-          </Button>
+          <div className="flex shrink-0 justify-end gap-2 border-t border-white/10 px-5 py-4">
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleGenerate}
+              loading={generating}
+              disabled={!canGenerate()}
+            >
+              <FileBarChart size={16} />
+              Gerar relatório
+            </Button>
+          </div>
         </div>
       </div>
     </div>,
